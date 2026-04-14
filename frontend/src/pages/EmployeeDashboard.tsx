@@ -5,6 +5,7 @@ import { Loader2, Download, Lock, FileText, X } from "lucide-react";
 import api from "../api/axios";
 import { PinModal } from "@/components/PinModal";
 import { SecureFileViewer } from "@/components/SecureFileViewer";
+import { useToast } from "@/hooks/use-toast";
 
 interface FileItem {
   id: number;
@@ -18,6 +19,7 @@ interface FileItem {
 }
 
 const EmployeeDashboard = () => {
+  const { toast } = useToast();
   const [files, setFiles] = useState<FileItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("")
@@ -120,17 +122,23 @@ const EmployeeDashboard = () => {
         if (err.response && err.response.data instanceof Blob) {
           const text = await err.response.data.text();
           try {
-              const data = JSON.parse(text);
-              if (data.mfaRequired) {
-                  setDownloadPinError(data.message || "Invalid PIN");
-                  return;
-              }
-              alert(data.message || "View failed.");
+            const data = JSON.parse(text);
+            if (data.blocked) {
+              toast({ title: "⛔ Access Blocked", description: `Risk score too high (${data.riskScore}/100). Contact your administrator.`, variant: "destructive", duration: 7000 });
+              setPinModalOpen(false);
+              return;
+            }
+            if (data.mfaRequired) { setDownloadPinError(data.message || "Invalid code"); return; }
+            toast({ title: "View Failed", description: data.message || "Could not view file.", variant: "destructive" });
           } catch {
-              alert("View failed.");
+            toast({ title: "View Failed", description: "An unexpected error occurred.", variant: "destructive" });
           }
         } else {
-          alert(err.response?.data?.message || "Network error during view.");
+          if (err.response?.data?.blocked) {
+            toast({ title: "⛔ Access Blocked", description: `Risk score too high (${err.response.data.riskScore}/100). Contact your administrator.`, variant: "destructive", duration: 7000 });
+          } else {
+            toast({ title: "View Failed", description: err.response?.data?.message || "Network error during view.", variant: "destructive" });
+          }
         }
         setPinModalOpen(false);
       }
@@ -156,17 +164,23 @@ const EmployeeDashboard = () => {
         if (err.response && err.response.data instanceof Blob) {
           const text = await err.response.data.text();
           try {
-              const data = JSON.parse(text);
-              if (data.mfaRequired) {
-                  setDownloadPinError(data.message || "Invalid PIN");
-                  return;
-              }
-              alert(data.message || "Download failed.");
+            const data = JSON.parse(text);
+            if (data.blocked) {
+              toast({ title: "⛔ Access Blocked", description: `Risk score too high (${data.riskScore}/100). Contact your administrator.`, variant: "destructive", duration: 7000 });
+              setPinModalOpen(false);
+              return;
+            }
+            if (data.mfaRequired) { setDownloadPinError(data.message || "Invalid code"); return; }
+            toast({ title: "Download Failed", description: data.message || "Could not download file.", variant: "destructive" });
           } catch {
-              alert("Download failed.");
+            toast({ title: "Download Failed", description: "An unexpected error occurred.", variant: "destructive" });
           }
         } else {
-          alert(err.response?.data?.message || "Network error during download.");
+          if (err.response?.data?.blocked) {
+            toast({ title: "⛔ Access Blocked", description: `Risk score too high (${err.response.data.riskScore}/100). Contact your administrator.`, variant: "destructive", duration: 7000 });
+          } else {
+            toast({ title: "Download Failed", description: err.response?.data?.message || "Network error during download.", variant: "destructive" });
+          }
         }
         setPinModalOpen(false);
       }

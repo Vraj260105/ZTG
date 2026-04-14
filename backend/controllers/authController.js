@@ -1,11 +1,13 @@
 const bcrypt = require("bcrypt");
 const jwt    = require("jsonwebtoken");
 const crypto = require("crypto");
-const User        = require("../models/User");
-const ActivityLog = require("../models/ActivityLog");
-const Alert       = require("../models/Alert");
-const blacklist   = require("../services/tokenBlacklist");
-const { Op }      = require("sequelize");
+const User          = require("../models/User");
+const ActivityLog   = require("../models/ActivityLog");
+const Alert         = require("../models/Alert");
+const blacklist     = require("../services/tokenBlacklist");
+const { computeRisk } = require("../services/riskEngine");
+const { createAlert } = require("../services/alertService");
+const { Op }        = require("sequelize");
 
 // =======================
 // REGISTER
@@ -175,17 +177,50 @@ exports.login = async (req, res) => {
     user.login_failed_attempts = 0;
     await user.save();
 
+    // [C3] Compute live risk score for this login attempt
+    const loginRisk = await computeRisk({
+      userId:   user.id,
+      action:   "login",
+      userRole: user.role,
+      ipAddress: req.ip,
+    });
+
     // [H9] Log every successful login to ActivityLog so SOC can track access
     await ActivityLog.create({
       userId:    user.id,
       action:    "LOGIN_SUCCESS",
       status:    "SUCCESS",
-      riskScore: 5,
+      riskScore: loginRisk.riskScore,
+      decision:  loginRisk.decision,
       department: user.department,
       resource:  `Successful login for ${user.email}`,
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"]
     });
+
+    // Create SOC alert if risk score warrants REVIEW or BLOCK
+    if (loginRisk.decision === "BLOCK") {
+      createAlert({
+        userId:    user.id,
+        riskScore: loginRisk.riskScore,
+        reason:    `[LOGIN BLOCKED] High-risk login attempt for ${user.email} — Score: ${loginRisk.riskScore}/100`,
+        status:    "OPEN",
+      }).catch(() => {});
+      return res.status(403).json({
+        message:  "Login blocked due to suspicious activity. Contact your administrator.",
+        riskScore: loginRisk.riskScore,
+        blocked:  true,
+      });
+    }
+
+    if (loginRisk.decision === "REVIEW") {
+      createAlert({
+        userId:    user.id,
+        riskScore: loginRisk.riskScore,
+        reason:    `[REVIEW] Suspicious login for ${user.email} — Score: ${loginRisk.riskScore}/100`,
+        status:    "OPEN",
+      }).catch(() => {});
+    }
 
     if (user.mfaEnabled) {
       // Temp token for MFA step — short-lived, no jti needed (not revocable)

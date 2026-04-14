@@ -59,6 +59,8 @@ interface Log {
   department: string | null;
   grantedBy: string | null;
   createdAt: string;
+  riskScore?: number;
+  decision?: string;
   User?: {
     email: string;
     name: string;
@@ -628,11 +630,10 @@ const SOCDashboard = () => {
                         <th className="px-6 py-4 font-medium">Timestamp</th>
                         <th className="px-6 py-4 font-medium">User ID</th>
                         <th className="px-6 py-4 font-medium">User Email</th>
-                        {/* <th className="px-6 py-4 font-medium">User Name</th> */}
                         <th className="px-6 py-4 font-medium">Department</th>
                         <th className="px-6 py-4 font-medium">Action</th>
+                        <th className="px-6 py-4 font-medium">Risk</th>
                         <th className="px-6 py-4 font-medium">Resource</th>
-                        {/* <th className="px-6 py-4 font-medium">Granted By</th> */}
                       </tr>
                     )}
                     {activeTab === "files" && (
@@ -706,13 +707,23 @@ const SOCDashboard = () => {
                         </td>
                         <td className="px-6 py-4 text-xs font-mono">{log.userId}</td>
                         <td className="px-6 py-4">{log.User?.email || "N/A"}</td>
-                        {/* <td className="px-6 py-4">{log.User?.name || "N/A"}</td> */}
                         <td className="px-6 py-4">{log.department || "N/A"}</td>
                         <td className="px-6 py-4 font-medium">{log.action}</td>
+                        <td className="px-6 py-4">
+                          {log.riskScore != null ? (
+                            <span className={`px-2 py-1 rounded text-xs font-bold ${
+                              log.riskScore >= 85 ? "bg-red-900/40 text-red-400 border border-red-500/50" :
+                              log.riskScore >= 65 ? "bg-orange-900/40 text-orange-400 border border-orange-500/50" :
+                              log.riskScore >= 30 ? "bg-yellow-900/40 text-yellow-400 border border-yellow-500/50" :
+                              "bg-green-900/40 text-green-400 border border-green-500/50"
+                            }`}>
+                              {log.riskScore >= 85 ? "⛔" : log.riskScore >= 65 ? "🔴" : log.riskScore >= 30 ? "🟡" : "🟢"} {log.riskScore}
+                            </span>
+                          ) : <span className="text-muted-foreground text-xs">—</span>}
+                        </td>
                         <td className="px-6 py-4 text-xs font-mono text-muted-foreground truncate max-w-[200px]">
                           {log.resource || "N/A"}
                         </td>
-                        {/* <td className="px-6 py-4">{log.grantedBy?.email || "N/A"}</td> */}
                       </tr>
                     ))}
 

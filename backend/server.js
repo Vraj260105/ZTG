@@ -54,7 +54,9 @@ const dashboardRoutes = require("./routes/dashboardRoutes");
 const webSecurityRoutes = require("./routes/webSecurityRoutes");
 
 // [C1] WAF Middleware — imported once, applied globally before ALL routes
-const wafMiddleware = require("./modules/webSecurity/wafMiddleware");
+const wafMiddleware  = require("./modules/webSecurity/wafMiddleware");
+// [C3] Risk Engine Middleware — applied to every authenticated route group
+const riskMiddleware = require("./middleware/riskMiddleware");
 
 const app = express();
 
@@ -95,18 +97,18 @@ app.use(globalLimiter);
 //      /api/files/view/:id or /api/files/download/:id endpoints only
 app.use(wafMiddleware);
 
-// Routes — auth route gets the stricter limiter
-app.use("/api/auth", authLimiter, authRoutes);
-app.use("/api/files", fileRoutes);
-app.use("/api", protectedRoutes);
-app.use("/api/soc", socRoutes);
-app.use("/api/access-requests", accessRequestRoutes);
-app.use("/api/security", securityRoutes);
-app.use("/api/activity-logs", activityRoutes);
-app.use("/api/users", userRoutes);
-app.use("/api/mfa", mfaRoutes);
-app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/websecurity", webSecurityRoutes);
+// Routes — auth route gets the stricter limiter but NO riskMiddleware (user not authenticated yet)
+app.use("/api/auth",           authLimiter, authRoutes);
+app.use("/api/files",          riskMiddleware, fileRoutes);
+app.use("/api",                riskMiddleware, protectedRoutes);
+app.use("/api/soc",            riskMiddleware, socRoutes);
+app.use("/api/access-requests",riskMiddleware, accessRequestRoutes);
+app.use("/api/security",       securityRoutes);   // WAF scanner — public-ish, no user context
+app.use("/api/activity-logs",  riskMiddleware, activityRoutes);
+app.use("/api/users",          riskMiddleware, userRoutes);
+app.use("/api/mfa",            riskMiddleware, mfaRoutes);
+app.use("/api/dashboard",      riskMiddleware, dashboardRoutes);
+app.use("/api/websecurity",    riskMiddleware, webSecurityRoutes);
 
 // Health check route
 app.get("/", (req, res) => {
