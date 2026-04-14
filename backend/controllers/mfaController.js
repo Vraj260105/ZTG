@@ -20,6 +20,7 @@ const jwt       = require("jsonwebtoken");
 const { Op }    = require("sequelize");
 const User             = require("../models/User");
 const MfaChangeRequest = require("../models/MfaChangeRequest");
+const { sendMfaResetApproved, sendMfaResetRejected } = require("../services/emailService");
 
 // ── Setup: Generate TOTP secret + QR code ────────────────────────────────────
 exports.setupTotp = async (req, res) => {
@@ -207,6 +208,11 @@ exports.approveChange = async (req, res) => {
       await user.save();
     }
 
+    // [Phase 4] Fire approval email — non-blocking
+    if (user?.email) {
+      sendMfaResetApproved(user.email).catch(() => {});
+    }
+
     res.status(200).json({ message: "MFA reset approved. User must re-enroll." });
   } catch (error) {
     console.error("Approve change error:", error.message);
@@ -231,6 +237,12 @@ exports.rejectChange = async (req, res) => {
     request.approvedBy   = req.user.id;
     request.adminMessage = reason.trim();
     await request.save();
+
+    // [Phase 4] Fire rejection email — non-blocking
+    const rejectedUser = await User.findByPk(request.userId, { attributes: ["email"] });
+    if (rejectedUser?.email) {
+      sendMfaResetRejected(rejectedUser.email, reason.trim()).catch(() => {});
+    }
 
     res.status(200).json({ message: "Request rejected." });
   } catch (error) {

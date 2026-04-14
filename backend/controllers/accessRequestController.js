@@ -5,6 +5,7 @@ const User = require("../models/User");
 const File = require("../models/File");
 // [C3] Risk Engine
 const { computeRisk } = require("../services/riskEngine");
+const { sendAccessApproved, sendAccessRejected } = require("../services/emailService");
 
 // getPendingRequests
 exports.getPendingRequests = async (req, res) => {
@@ -135,6 +136,15 @@ exports.approveRequest = async (req, res) => {
       decision: grantRisk.decision
     });
 
+    // [Phase 4] Fire approval email — non-blocking
+    if (targetUser?.email) {
+      sendAccessApproved(
+        targetUser.email,
+        targetFile?.originalName || targetFile?.filename || `File #${request.fileId}`,
+        expiresAt
+      ).catch(() => {});
+    }
+
     res.status(200).json({ message: "Access request approved" });
   } catch (error) {
     console.error("Approve request error:", error);
@@ -191,6 +201,15 @@ exports.rejectRequest = async (req, res) => {
       riskScore: rejectRisk.riskScore,
       decision: rejectRisk.decision
     });
+
+    // [Phase 4] Fire rejection email — non-blocking
+    if (targetUser?.email) {
+      sendAccessRejected(
+        targetUser.email,
+        targetFile?.originalName || targetFile?.filename || `File #${request.fileId}`,
+        reason.trim()
+      ).catch(() => {});
+    }
 
     res.status(200).json({ message: "Access request rejected" });
   } catch (error) {

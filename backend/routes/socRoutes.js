@@ -5,6 +5,7 @@ const verifyToken   = require("../middleware/authMiddleware");
 const requireRole   = require("../middleware/roleMiddleware");
 const speakeasy     = require("speakeasy");        // [H1] TOTP verification
 const blacklist     = require("../services/tokenBlacklist"); // [H2] instant revocation
+const { sendAccountSuspended } = require("../services/emailService"); // [Phase 4]
 
 const Alert         = require("../models/Alert");
 const ActivityLog   = require("../models/ActivityLog");
@@ -132,6 +133,9 @@ router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), async (
         ipAddress: req.ip,
         userAgent: req.headers["user-agent"]
       });
+
+      // [Phase 4] Notify user of account suspension — fire-and-forget
+      sendAccountSuspended(user.email).catch(() => {});
     }
 
     await user.save();
