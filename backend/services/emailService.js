@@ -16,12 +16,17 @@
 const nodemailer = require("nodemailer");
 
 // ── Transporter — configured from .env ───────────────────────────────────────
+// Compatible with both Mailtrap (port 2525) and Gmail (port 587 + STARTTLS)
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST   || "sandbox.smtp.mailtrap.io",
-  port: parseInt(process.env.SMTP_PORT || "2525"),
+  host:   process.env.SMTP_HOST || "sandbox.smtp.mailtrap.io",
+  port:   parseInt(process.env.SMTP_PORT || "2525"),
+  secure: parseInt(process.env.SMTP_PORT || "2525") === 465, // true only for port 465 (SSL)
   auth: {
     user: process.env.SMTP_USER || "",
     pass: process.env.SMTP_PASS || "",
+  },
+  tls: {
+    rejectUnauthorized: false, // allows self-signed certs in dev
   },
 });
 
