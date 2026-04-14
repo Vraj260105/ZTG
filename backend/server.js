@@ -17,7 +17,6 @@ const TemporaryAccess = require("./models/TemporaryAccess");
 const MfaChangeRequest = require("./models/MfaChangeRequest");
 
 // Relationships
-
 User.hasMany(File, { foreignKey: "uploadedBy" });
 File.belongsTo(User, { foreignKey: "uploadedBy" });
 
@@ -51,19 +50,23 @@ const userRoutes = require("./routes/userRoutes");
 const mfaRoutes = require("./routes/mfaRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const webSecurityRoutes = require("./routes/webSecurityRoutes");
+
+// [C1] WAF Middleware — imported once, applied globally before ALL routes
 const wafMiddleware = require("./modules/webSecurity/wafMiddleware");
 
 const app = express();
 
-// Middlewares
+// Core Middlewares
 app.use(cors());
 app.use(express.json());
 
-// Static file serving
-app.use("/uploads", express.static("uploads"));
+// [C1] Apply WAF globally — protects all 11 route groups (was only on 2)
+// [C2] express.static("/uploads") REMOVED — files must be accessed via authenticated
+//      /api/files/view/:id or /api/files/download/:id endpoints only
+app.use(wafMiddleware);
 
 // Routes
-app.use("/api/auth", wafMiddleware, authRoutes);
+app.use("/api/auth", authRoutes);
 app.use("/api/files", fileRoutes);
 app.use("/api", protectedRoutes);
 app.use("/api/soc", socRoutes);
@@ -73,9 +76,9 @@ app.use("/api/activity-logs", activityRoutes);
 app.use("/api/users", userRoutes);
 app.use("/api/mfa", mfaRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/websecurity", wafMiddleware, webSecurityRoutes);
+app.use("/api/websecurity", webSecurityRoutes);
 
-// Test route
+// Health check route
 app.get("/", (req, res) => {
   res.send("ZeroTrustGuard Backend Running...");
 });
@@ -83,12 +86,12 @@ app.get("/", (req, res) => {
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
-
   try {
-
     await connectDB();
 
-    await sequelize.sync({ alter: true });
+    // [C4] Changed from { alter: true } — which silently mutates DB schema on every restart —
+    //      to { force: false } which only creates tables if they don't exist. Safe for production.
+    await sequelize.sync({ force: false });
 
     console.log("Database synced successfully");
 
@@ -97,11 +100,8 @@ async function startServer() {
     });
 
   } catch (error) {
-
     console.error("Startup error:", error);
-
   }
-
 }
 
 startServer();

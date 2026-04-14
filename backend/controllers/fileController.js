@@ -6,6 +6,8 @@ const AccessRequest = require("../models/AccessRequest");
 const { Op } = require("sequelize");
 const path = require("path");
 const fs = require("fs");
+// [C3] Risk Engine — wired to compute dynamic risk scores for file actions
+const { computeRisk } = require("../services/riskEngine");
 
 // Upload File
 exports.uploadFile = async (req, res) => {
@@ -87,6 +89,17 @@ exports.uploadFile = async (req, res) => {
       ]
     });
 
+    // [C3] Compute dynamic risk score for this upload action
+    const uploadRisk = await computeRisk({
+      userId,
+      action: "file_upload",
+      sensitivityLevel: sensitivityLevel,
+      userRole:        role,
+      userDepartment:  departmentStr,
+      fileDepartment:  targetDepartments,
+      ipAddress:       req.ip
+    });
+
     // Log action
     await ActivityLog.create({
       userId,
@@ -95,7 +108,9 @@ exports.uploadFile = async (req, res) => {
       department: departmentStr,
       resource: req.file.filename,
       ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      riskScore: uploadRisk.riskScore,
+      decision: uploadRisk.decision
     });
 
     res.status(201).json({
@@ -325,6 +340,17 @@ exports.downloadFile = async (req, res) => {
       return res.status(403).json({ message: "Access denied for downloading" });
     }
 
+    // [C3] Compute dynamic risk score for this download action
+    const downloadRisk = await computeRisk({
+      userId,
+      action:          "file_download",
+      sensitivityLevel: file.sensitivityLevel,
+      userRole:         userRole,
+      userDepartment:   user.department,
+      fileDepartment:   file.target_department,
+      ipAddress:        req.ip
+    });
+
     // Log action
     await ActivityLog.create({
       userId,
@@ -333,7 +359,9 @@ exports.downloadFile = async (req, res) => {
       department: user.department,
       resource: file.filename,
       ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      riskScore: downloadRisk.riskScore,
+      decision: downloadRisk.decision
     });
 
     // Handle relative or absolute paths appropriately
@@ -378,6 +406,17 @@ exports.requestAccess = async (req, res) => {
       status: "pending"
     });
 
+    // [C3] Compute dynamic risk score for access request
+    const reqRisk = await computeRisk({
+      userId,
+      action:          "access_request",
+      sensitivityLevel: file.sensitivityLevel,
+      userRole:         user.role,
+      userDepartment:   user.department,
+      fileDepartment:   file.target_department,
+      ipAddress:        req.ip
+    });
+
     await ActivityLog.create({
       userId,
       action: "access_request",
@@ -385,7 +424,9 @@ exports.requestAccess = async (req, res) => {
       department: user ? user.department : null,
       resource: fileId.toString(),
       ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      riskScore: reqRisk.riskScore,
+      decision: reqRisk.decision
     });
 
     res.status(201).json({ message: "Access requested successfully" });
@@ -429,6 +470,17 @@ exports.viewFile = async (req, res) => {
 
     if (!canView) return res.status(403).json({ message: "Access denied" });
 
+    // [C3] Compute dynamic risk score for this view action
+    const viewRisk = await computeRisk({
+      userId,
+      action:          "file_view",
+      sensitivityLevel: file.sensitivityLevel,
+      userRole:         user.role,
+      userDepartment:   user.department,
+      fileDepartment:   file.target_department,
+      ipAddress:        req.ip
+    });
+
     // Log the view action
     await ActivityLog.create({
       userId,
@@ -436,7 +488,10 @@ exports.viewFile = async (req, res) => {
       fileId,
       department: user.department,
       resource: file.filename,
-      riskScore: 0 // Normal activity
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      riskScore: viewRisk.riskScore,
+      decision: viewRisk.decision
     });
 
     let filePath = file.path;

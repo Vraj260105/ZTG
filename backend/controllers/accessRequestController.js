@@ -3,6 +3,8 @@ const TemporaryAccess = require("../models/TemporaryAccess");
 const ActivityLog = require("../models/ActivityLog");
 const User = require("../models/User");
 const File = require("../models/File");
+// [C3] Risk Engine
+const { computeRisk } = require("../services/riskEngine");
 
 // getPendingRequests
 exports.getPendingRequests = async (req, res) => {
@@ -108,15 +110,29 @@ exports.approveRequest = async (req, res) => {
     });
 
     const targetUser = await User.findByPk(request.userId);
-    
+    const targetFile = await File.findByPk(request.fileId);
+
+    // [C3] Dynamic risk score for access grant
+    const grantRisk = await computeRisk({
+      userId:          approverId,
+      action:          "access_granted",
+      sensitivityLevel: targetFile ? targetFile.sensitivityLevel : "low",
+      userRole:         req.user.role,
+      userDepartment:   req.user.department || null,
+      fileDepartment:   targetFile ? targetFile.target_department : null,
+      ipAddress:        req.ip
+    });
+
     await ActivityLog.create({
-      userId: approverId, // Assuming action is taken by approver
+      userId: approverId,
       action: "access_granted",
       fileId: request.fileId,
       department: targetUser ? targetUser.department : null,
       resource: request.fileId.toString(),
       ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      riskScore: grantRisk.riskScore,
+      decision: grantRisk.decision
     });
 
     res.status(200).json({ message: "Access request approved" });
@@ -150,6 +166,18 @@ exports.rejectRequest = async (req, res) => {
     await request.save();
 
     const targetUser = await User.findByPk(request.userId);
+    const targetFile = await File.findByPk(request.fileId);
+
+    // [C3] Dynamic risk score for access rejection
+    const rejectRisk = await computeRisk({
+      userId:          approverId,
+      action:          "access_rejected",
+      sensitivityLevel: targetFile ? targetFile.sensitivityLevel : "low",
+      userRole:         req.user.role,
+      userDepartment:   req.user.department || null,
+      fileDepartment:   targetFile ? targetFile.target_department : null,
+      ipAddress:        req.ip
+    });
 
     await ActivityLog.create({
       userId: approverId,
@@ -158,7 +186,9 @@ exports.rejectRequest = async (req, res) => {
       department: targetUser ? targetUser.department : null,
       resource: request.fileId.toString(),
       ipAddress: req.ip,
-      userAgent: req.headers["user-agent"]
+      userAgent: req.headers["user-agent"],
+      riskScore: rejectRisk.riskScore,
+      decision: rejectRisk.decision
     });
 
     res.status(200).json({ message: "Access request rejected" });

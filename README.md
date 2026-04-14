@@ -2,216 +2,120 @@
           ZEROTRUSTGUARD - SETUP GUIDE
 =====================================================
 
-ZeroTrustGuard is a specialized SOC platform for 
+ZeroTrustGuard is a specialized SOC platform for
 Vulnerability Scanning and Secure File Management.
 
 -----------------------------------------------------
 1. PREREQUISITES
 -----------------------------------------------------
-- Node.js (v18 or higher)
-- PostgreSQL (v14 or higher)
-- Nmap (installed and added to System PATH)
+- Node.js (v18 or higher)    → https://nodejs.org
+- PostgreSQL (v14 or higher) → https://postgresql.org
+- Nmap (added to System PATH)→ https://nmap.org
 
 -----------------------------------------------------
 2. DATABASE SETUP (CRITICAL)
 -----------------------------------------------------
 1. Open pgAdmin 4 or psql.
 2. Create a NEW database named: zerotrust
-3. Right-click the 'zerotrust' database -> Query Tool.
-4. Open the 'zerotrust_backup.sql' file provided in the group.
-5. Press F5 (Execute) to import all tables and the Admin user.
+
+   SQL: CREATE DATABASE zerotrust;
+
+3. The backend will auto-create all tables on first
+   run via Sequelize sync.
 
 -----------------------------------------------------
 3. BACKEND CONFIGURATION
 -----------------------------------------------------
 1. Go to the /backend folder.
-2. Create a file named '.env'.
-3. Add the following lines (update with your credentials):
+2. Copy '.env.example' and rename it to '.env'.
+3. Fill in your credentials:
 
-   PORT=8081
+   PORT=5000
    DB_NAME=zerotrust
    DB_USER=postgres
-   DB_PASSWORD=YOUR_POSTGRES_PASSWORD_HERE
+   DB_PASS=YOUR_POSTGRES_PASSWORD_HERE     ← use DB_PASS (not DB_PASSWORD)
    DB_HOST=localhost
-   JWT_SECRET=your_super_secret_key
+   JWT_SECRET=your_super_secret_random_key
+
+   ⚠️  IMPORTANT NOTES:
+   - Use DB_PASS (not DB_PASSWORD) — the code reads DB_PASS
+   - Backend runs on PORT=5000, frontend runs on 8081
+   - Do NOT set PORT=8081 (that is the frontend port)
+
+   To generate a strong JWT secret:
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 
 -----------------------------------------------------
 4. RUNNING THE APPLICATION
 -----------------------------------------------------
-STEP 1: Start Backend
+OPTION A — Start both servers at once (from root folder):
+   npm install
+   npm run dev
+
+OPTION B — Start separately:
+
+   STEP 1: Start Backend
    - Open terminal in /backend
    - Run: npm install
-   - Run: npm start
+   - Run: npm start          (or: npm run dev  for hot-reload)
 
-STEP 2: Start Frontend
-   - Open a new terminal in /frontend
+   STEP 2: Start Frontend
+   - Open a NEW terminal in /frontend
    - Run: npm install
-   - Run: npm start
+   - Run: npm run dev
 
 -----------------------------------------------------
-5. DEFAULT LOGIN
+5. ACCESS THE APP
 -----------------------------------------------------
-- Email: admin@ztg.com
-- Password: admin123
+   Frontend : http://localhost:8081
+   Backend  : http://localhost:5000
 
 -----------------------------------------------------
-6. USERS LOGIN 
+6. DEFAULT LOGIN
+-----------------------------------------------------
+   Email   : admin@ztg.com
+   Password: admin123
+
+-----------------------------------------------------
+7. USER ACCOUNTS (by Department & Role)
 -----------------------------------------------------
 
 IT Department
-
-{
-  "email": "it.intern1@ztg.com",
-  "password": "intern123",
-  "role": "intern",
-  "department": "IT",
-  "designation": "IT Intern",
-  "designation_level": 1
-}
-
-{
-  "email": "it.intern2@ztg.com",
-  "password": "intern123",
-  "role": "intern",
-  "department": "IT",
-  "designation": "IT Intern",
-  "designation_level": 1
-}
-
-{
-  "email": "it.staff1@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "IT",
-  "designation": "Staff Engineer",
-  "designation_level": 2
-}
-
-{
-  "email": "it.staff2@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "IT",
-  "designation": "Staff Engineer",
-  "designation_level": 2
-}
-
-{
-  "email": "it.senior1@ztg.com",
-  "password": "
-",
-  "role": "senior",
-  "department": "IT",
-  "designation": "Senior Systems Engineer",
-  "designation_level": 3
-}
-
-{
-  "email": "it.senior2@ztg.com",
-  "password": "
-",
-  "role": "senior",
-  "department": "IT",
-  "designation": "Senior Systems Engineer",
-  "designation_level": 3
-}
+─────────────
+Email                  Password    Role    Level
+it.intern1@ztg.com     intern123   intern  1
+it.intern2@ztg.com     intern123   intern  1
+it.staff1@ztg.com      staff123    staff   2
+it.staff2@ztg.com      staff123    staff   2
+it.senior1@ztg.com     senior123   senior  3
+it.senior2@ztg.com     senior123   senior  3
 
 Accounts Department
-
-{
-  "email": "acc.intern1@ztg.com",
-  "password": "intern123",
-  "role": "intern",
-  "department": "ACCOUNTS",
-  "designation": "Accounting Intern",
-  "designation_level": 1
-}
-
-
-{
-  "email": "acc.staff1@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "ACCOUNTS",
-  "designation": "Junior Accountant",
-  "designation_level": 2
-}
-
-{
-  "email": "acc.staff2@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "ACCOUNTS",
-  "designation": "Junior Accountant",
-  "designation_level": 2
-}
-
-{
-  "email": "acc.staff3@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "ACCOUNTS",
-  "designation": "Junior Accountant",
-  "designation_level": 2
-}
-
-{
-  "email": "acc.senior1@ztg.com",
-  "password": "senior123",
-  "role": "senior",
-  "department": "ACCOUNTS",
-  "designation": "Senior Accountant",
-  "designation level": 3
-}
-
-{
-  "email": "acc.senior2@ztg.com",
-  "password": "senior123",
-  "role": "senior",
-  "department": "ACCOUNTS",
-  "designation": "Senior Accountant",
-  "designation_level": 3
-}
-
+───────────────────
+acc.intern1@ztg.com    intern123   intern  1
+acc.staff1@ztg.com     staff123    staff   2
+acc.staff2@ztg.com     staff123    staff   2
+acc.staff3@ztg.com     staff123    staff   2
+acc.senior1@ztg.com    senior123   senior  3
+acc.senior2@ztg.com    senior123   senior  3
 
 HR Department
+─────────────
+hr.intern1@ztg.com     intern123   intern  1
+hr.staff1@ztg.com      staff123    staff   2
+hr.senior1@ztg.com     senior123   senior  3
+hr.senior2@ztg.com     senior123   senior  3
 
-{
-  "email": "hr.intern1@ztg.com",
-  "password": "intern123",
-  "role": "intern",
-  "department": "HR",
-  "designation": "HR Intern",
-  "designation_level": 1
-}
-
-
-
-{
-  "email": "hr.staff1@ztg.com",
-  "password": "staff123",
-  "role": "staff",
-  "department": "HR",
-  "designation": "HR Generalist",
-  "designation_level": 2
-}
-
-
-{
-  "email": "hr.senior1@ztg.com",
-  "password": "senior123",
-  "role": "senior",
-  "department": "HR",
-  "designation": "Senior HR Manager",
-  "designation_level": 3
-}
-
-{
-  "email": "hr.senior2@ztg.com",
-  "password": "senior123",
-  "role": "senior",
-  "department": "HR",
-  "designation": "Senior HR Manager",
-  "designation_level": 3
-}
-
+-----------------------------------------------------
+8. ROLE ACCESS MATRIX
+-----------------------------------------------------
+Route                Role(s)
+/dashboard           intern, staff, senior
+/employee-upload     intern, staff, senior
+/approvals           staff, senior, admin, super_admin
+/mfa-setup           all roles
+/soc                 admin, super_admin
+/web-security        admin, super_admin
+/files               admin, super_admin
+/soc/users           admin, super_admin
+/add-user            admin, super_admin
