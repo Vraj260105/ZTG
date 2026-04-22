@@ -56,7 +56,7 @@ const WebSecurity = () => {
 
     try {
       const token = localStorage.getItem("ztg_token");
-      const API_BASE = "http://localhost:5000";
+      const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/$/, "");
       
       const response = await fetch(`${API_BASE}/api/websecurity/scan`, {
         method: "POST",
@@ -130,7 +130,8 @@ const WebSecurity = () => {
     // Fire the kill request and await audit record creation
     try {
       const token = localStorage.getItem("ztg_token");
-      const stopRes = await fetch("http://localhost:5000/api/websecurity/stop", {
+      const API_BASE = (import.meta.env.VITE_API_URL || "http://localhost:5000").replace(/\/$/, "");
+      const stopRes = await fetch(`${API_BASE}/api/websecurity/stop`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ sessionScanId: activeScanSessionId })
