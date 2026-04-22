@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/Login";
 import EmployeeDashboard from "./pages/EmployeeDashboard";
 import SOCDashboard from "./pages/SOCDashboard";
+import ActivityLogs from "./pages/ActivityLogs";
 import AdminUsers from "./pages/AdminUsers";
 import FileManagement from "./pages/FileManagement";
 import EmployeeUpload from "./pages/EmployeeUpload";
@@ -14,6 +15,7 @@ import AddUser from "./pages/AddUser";
 import ApprovalsDashboard from "./pages/ApprovalsDashboard";
 import MFASetup from "./pages/MFASetup";
 import WebSecurity from "./pages/WebSecurity";
+import MyActivity from "./pages/MyActivity";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +35,16 @@ const ProtectedRoute = ({
     return <Navigate to="/login" replace />;
   }
 
+  return <>{children}</>;
+};
+
+// Special guard for /mfa-setup:
+// accepts a full ztg_token (logged-in user changing device)
+// OR a ztg_temp_token (new user completing first-time MFA enrollment)
+const MfaRoute = ({ children }: { children: React.ReactNode }) => {
+  const fullToken = localStorage.getItem("ztg_token");
+  const tempToken = localStorage.getItem("ztg_temp_token");
+  if (!fullToken && !tempToken) return <Navigate to="/login" replace />;
   return <>{children}</>;
 };
 
@@ -64,6 +76,16 @@ const App = () => (
             element={
               <ProtectedRoute allowedRoles={["admin", "super_admin"]}>
                 <SOCDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Activity Logs */}
+          <Route
+            path="/activity-logs"
+            element={
+              <ProtectedRoute allowedRoles={["admin", "super_admin"]}>
+                <ActivityLogs />
               </ProtectedRoute>
             }
           />
@@ -118,12 +140,22 @@ const App = () => (
             }
           />
 
-          {/* Approvals Dashboard */}
+          {/* Approvals Dashboard — all roles; component handles the view split */}
           <Route
             path="/approvals"
             element={
-              <ProtectedRoute allowedRoles={["staff", "senior", "admin", "super_admin"]}>
+              <ProtectedRoute allowedRoles={["intern", "staff", "senior", "admin", "super_admin"]}>
                 <ApprovalsDashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* My Activity — user-scoped log timeline */}
+          <Route
+            path="/my-activity"
+            element={
+              <ProtectedRoute allowedRoles={["intern", "staff", "senior"]}>
+                <MyActivity />
               </ProtectedRoute>
             }
           />
@@ -131,10 +163,14 @@ const App = () => (
           {/* Root Redirect */}
           <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* MFA Setup Page */}
+          {/* MFA Setup — accessible to logged-in users AND new users with a temp setup token */}
           <Route
             path="/mfa-setup"
-            element={<MFASetup />}
+            element={
+              <MfaRoute>
+                <MFASetup />
+              </MfaRoute>
+            }
           />
 
           {/* Fallback */}

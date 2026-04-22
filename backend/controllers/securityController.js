@@ -67,11 +67,11 @@ exports.getAlerts = async (req, res) => {
       includeUser.required = true;
     }
 
+    // Return all alerts ordered by newest (pagination handled client-side)
     const alerts = await ActivityLog.findAll({
       where: whereClause,
       include: [includeUser],
       order: [["createdAt", "DESC"]],
-      limit: 100
     });
 
     // Ensure we always return an array even if empty

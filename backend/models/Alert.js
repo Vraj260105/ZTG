@@ -18,4 +18,19 @@ const Alert = sequelize.define("Alert", {
   }
 });
 
+// ── Real-time socket hooks ───────────────────────────────────────────────────
+Alert.addHook("afterCreate", (alert) => {
+  try {
+    const io = require("../utils/socket").getIo();
+    if (io) io.to("soc").emit("new_alert", alert.toJSON());
+  } catch (_) {}
+});
+
+Alert.addHook("afterUpdate", (alert) => {
+  try {
+    const io = require("../utils/socket").getIo();
+    if (io) io.to("soc").emit("update_alert", alert.toJSON());
+  } catch (_) {}
+});
+
 module.exports = Alert;

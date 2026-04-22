@@ -65,4 +65,20 @@ const ActivityLog = sequelize.define("ActivityLog", {
   timestamps: true // ensures createdAt & updatedAt
 });
 
+// ── Real-time socket hooks ───────────────────────────────────────────────────
+// These fire for EVERY create/update — controllers, cron jobs, seed scripts, etc.
+ActivityLog.addHook("afterCreate", (log) => {
+  try {
+    const io = require("../utils/socket").getIo();
+    if (io) io.to("soc").emit("new_activity", log.toJSON());
+  } catch (_) {}
+});
+
+ActivityLog.addHook("afterUpdate", (log) => {
+  try {
+    const io = require("../utils/socket").getIo();
+    if (io) io.to("soc").emit("update_activity", log.toJSON());
+  } catch (_) {}
+});
+
 module.exports = ActivityLog;

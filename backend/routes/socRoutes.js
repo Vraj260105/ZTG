@@ -166,4 +166,87 @@ router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), async (
 });
 
 
+// ===============================
+// Temporary Lockout (time-limited)
+// ===============================
+router.post("/users/:id/lockout", verifyToken, requireRole("admin"), async (req, res) => {
+  try {
+    const { duration } = req.body;
+    const DURATIONS = {
+      "15m": 15 * 60 * 1000,
+      "1h":   1 * 60 * 60 * 1000,
+      "4h":   4 * 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d":   7 * 24 * 60 * 60 * 1000,
+    };
+    if (!DURATIONS[duration]) return res.status(400).json({ message: "Invalid lockout duration." });
+
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found." });
+    if (user.id === req.user.id) return res.status(400).json({ message: "You cannot lock yourself out." });
+
+    const adminUser = await User.findByPk(req.user.id);
+    if (adminUser && adminUser.mfaEnabled) {
+      const mfaToken = req.headers["x-mfa-pin"];
+      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
+      const isValid = adminUser.mfaSecret && speakeasy.totp.verify({
+        secret: adminUser.mfaSecret, encoding: "base32", token: mfaToken, window: 1
+      });
+      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired code." });
+    }
+
+    const until = new Date(Date.now() + DURATIONS[duration]);
+    user.blocked_until = until;
+    user.block_reason  = "LOCKOUT";
+    await user.save();
+
+    await ActivityLog.create({
+      userId: user.id, riskScore: 60,
+      action: "ACCOUNT_LOCKOUT", status: "SUCCESS",
+      department: user.department,
+      resource: `Temp lockout by ${req.user.email} for ${duration} until ${until.toISOString()}`,
+      ipAddress: req.ip, userAgent: req.headers["user-agent"]
+    });
+
+    sendAccountSuspended(user.email).catch(() => {});
+    res.json({ message: `User locked out for ${duration}`, lockedUntil: until });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove/clear lockout only
+router.post("/users/:id/unlock-lockout", verifyToken, requireRole("admin"), async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found." });
+
+    const adminUser = await User.findByPk(req.user.id);
+    if (adminUser && adminUser.mfaEnabled) {
+      const mfaToken = req.headers["x-mfa-pin"];
+      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
+      const isValid = adminUser.mfaSecret && speakeasy.totp.verify({
+        secret: adminUser.mfaSecret, encoding: "base32", token: mfaToken, window: 1
+      });
+      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired code." });
+    }
+
+    user.blocked_until = null;
+    if (user.block_reason === "LOCKOUT") user.block_reason = null;
+    await user.save();
+
+    await ActivityLog.create({
+      userId: user.id, riskScore: 0,
+      action: "ACCOUNT_UNBLOCK", status: "RESOLVED",
+      department: user.department,
+      resource: `Lockout cleared by ${req.user.email}`,
+      ipAddress: req.ip, userAgent: req.headers["user-agent"]
+    });
+
+    res.json({ message: "Lockout removed. User can log in again." });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 module.exports = router;

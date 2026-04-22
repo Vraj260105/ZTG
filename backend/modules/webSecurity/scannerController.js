@@ -3,6 +3,52 @@ const fs = require("fs");
 const WebScan = require("../../models/WebScan");
 const PDFDocument = require("pdfkit");
 
+function generateAdvancedInsight(port, scanType, service = "") {
+    let base = `Review access controls and restrict this service behind VPN/Zero-Trust if not required externally.`;
+
+    const map = {
+        80: "Ensure HTTPS enforcement, WAF deployment, and secure headers (CSP, HSTS).",
+        443: "Verify TLS 1.2+ enforcement, disable weak ciphers, and use strong certificates.",
+        8080: "Common dev port. Ensure no debug panels, admin APIs, or Swagger exposed.",
+        21: "FTP insecure. Migrate to SFTP/FTPS immediately.",
+        22: "Enforce key-based SSH, disable root login, implement fail2ban.",
+        23: "Telnet insecure. Disable immediately.",
+        25: "Ensure SMTP is not an open relay. Configure SPF/DKIM/DMARC.",
+        53: "Restrict DNS recursion and prevent zone transfers.",
+        110: "POP3 insecure. Use POP3S.",
+        143: "IMAP insecure. Use IMAPS.",
+        445: "SMB exposed → Critical lateral movement risk. Block externally.",
+        3389: "RDP exposed → ransomware risk. Enforce VPN + MFA.",
+        3306: "MySQL exposed. Disable remote root access and whitelist IPs.",
+        5432: "PostgreSQL exposed. Restrict via pg_hba.conf.",
+        27017: "MongoDB exposed. Enable authentication immediately.",
+        6379: "Redis exposed. Bind to localhost and enable AUTH.",
+        9200: "Elasticsearch exposed. Sensitive data leak risk.",
+        5601: "Kibana exposed. Protect with authentication.",
+        2375: "Docker API exposed → FULL SYSTEM TAKEOVER risk.",
+        6443: "Kubernetes API exposed. Enforce RBAC + firewall rules.",
+        4444: "Suspicious port. Often used for reverse shells/backdoors.",
+        6667: "IRC port. Possible botnet C2 channel.",
+    };
+
+    let insight = map[port] || base;
+
+    // Scan-type contextual intelligence
+    if (scanType === "Vuln") {
+        insight += " Validate against known CVEs and apply immediate patching.";
+    }
+
+    if (scanType === "Full") {
+        insight += " Verify service versioning and check for outdated software exposure.";
+    }
+
+    if (scanType === "Stealth") {
+        insight += " Ensure IDS/IPS evasion is not possible and logs are monitored.";
+    }
+
+    return insight;
+}
+
 // Global registry: maps scanId -> nmap child process
 const activeScans = new Map();
 let _scanIdCounter = Date.now();
@@ -22,19 +68,19 @@ exports.runScan = async (req, res) => {
     let scanMessage = `Initializing Nmap Engine for ${scanType} Audit...`;
 
     if (scanType === "Stealth") {
-        args = ["-sS", "-T2", target];
+        args = ["-sS", "-T4", "-sV", target];
     } else if (scanType === "Vuln") {
-        args = ["--script", "vuln", target];
+        args = ["-T4","--script", "vuln", target];
     } else if (scanType === "Full") {
-        args = ["-p-", "-sV", "-A", "-T4", target]; // -A provides OS + versions without needing strict -O
+        args = ["-p-", "-sV", "-A", target]; // -A provides OS + versions without needing strict -O
     } else if (scanType === "HEADER_AUDIT") {
-        args = ["--script", "http-security-headers", target];
+        args = ["-p", "80,443", "--script", "http-security-headers", target];
         scanMessage = `Scanning Web Headers...`;
     } else if (scanType === "SSL_SCAN" || scanType === "SSL/TLS Scan") {
-        args = ["--script", "ssl-enum-ciphers,ssl-cert", "-p", "443", target];
+        args = ["-p", "443", "-sV", "--script", "ssl-enum-ciphers,ssl-cert", target];
         scanMessage = `Analyzing SSL Ciphers...`;
     } else if (scanType === "CMS_SCAN") {
-        args = ["--script", "http-enum,http-wordpress-enum", target];
+        args = ["-p", "80,443", "-sV", "--script", "http-enum,http-wordpress-enum", target];
         scanMessage = `Detecting Content Management Systems...`;
     } else { 
         args = ["-T4", "-F", target];
@@ -119,20 +165,43 @@ exports.runScan = async (req, res) => {
         let calculatedRiskScore = 0;
         const lines = fullOutput.split('\n');
         
+        let severityWeight = {
+            "Critical": 100,
+            "High": 85,
+            "Medium": 60,
+            "Low": 30,
+            "Info": 10
+        };
+
+        const addRisk = (severity) => {
+            calculatedRiskScore = Math.max(calculatedRiskScore, severityWeight[severity] || 10);
+        };
+
         lines.forEach(line => {
             // "80/tcp  open  http    nginx 1.18.0"
             const portMatch = line.match(/^(\d+)\/(tcp|udp)\s+open\s+(.*)/);
             if (portMatch) {
+               const pMatchParsed = parseInt(portMatch[1]);
+               const criticalPorts = [21, 22, 23, 445, 3389, 3306, 5432, 27017, 6379, 9200, 2375];
+
+               let severity = "Medium";
+               if (criticalPorts.includes(pMatchParsed)) severity = "High";
+               if ([23, 2375, 445].includes(pMatchParsed)) severity = "Critical";
+               if ([80, 443].includes(pMatchParsed)) severity = "Info";
+
+               addRisk(severity);
+
                findings.push({
-                   severity: ["80", "443"].includes(portMatch[1]) ? "Info" : "Medium",
+                   severity,
                    type: "Network Port",
                    endpoint: `Port ${portMatch[1]} (${portMatch[2]})`,
-                   description: `Service identified: ${portMatch[3].trim()}`
+                   description: `Service identified: ${portMatch[3].trim()}`,
+                   recommendation: generateAdvancedInsight(pMatchParsed, scanType, portMatch[3])
                });
             }
 
             if (line.includes("VULNERABLE:") || line.includes("| _vulnerability") || line.toLowerCase().includes("vulnerable")) {
-               calculatedRiskScore = Math.max(calculatedRiskScore, 90);
+               addRisk("High");
                findings.push({
                    severity: "High",
                    type: "Vulnerability Module Alert",
@@ -143,7 +212,7 @@ exports.runScan = async (req, res) => {
 
             const cData = line.match(/(TLSv\d\.\d|SSLv\d\.\d)/);
             if (line.includes("Grade: C") || line.includes("Grade: D") || line.includes("Grade: F")) {
-               calculatedRiskScore = Math.max(calculatedRiskScore, 85);
+               addRisk("High");
                findings.push({
                    severity: "High",
                    type: "Weak Cipher",
@@ -153,7 +222,7 @@ exports.runScan = async (req, res) => {
             }
 
             if (line.toLowerCase().includes("expired")) {
-               calculatedRiskScore = Math.max(calculatedRiskScore, 100);
+               addRisk("Critical");
                findings.push({
                    severity: "Critical",
                    type: "Certificate Expiry",
@@ -164,7 +233,7 @@ exports.runScan = async (req, res) => {
 
             if (line.includes("Strict-Transport-Security") || line.includes("Content-Security-Policy")) {
                if (line.includes("missing") || line.includes("not set")) {
-                  calculatedRiskScore = Math.max(calculatedRiskScore, 70);
+                  addRisk("High");
                   findings.push({
                       severity: "High",
                       type: "Missing Header",
@@ -175,7 +244,7 @@ exports.runScan = async (req, res) => {
             }
 
             if (line.includes("outdated") || line.match(/version\s+[\d\.]+\s*.*(outdated|deprecated)/i)) {
-               calculatedRiskScore = Math.max(calculatedRiskScore, 90);
+               addRisk("Critical");
                findings.push({
                    severity: "Critical",
                    type: "Outdated CMS",
@@ -345,8 +414,8 @@ exports.generatePdfReport = async (req, res) => {
     doc.y = badgeY + 40; // Explicit shift down securely
 
     // Scan Metadata
-    const metadataY = doc.y;
-    doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text("Scan Metadata", 50, metadataY);
+    doc.x = 50;
+    doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text("Scan Metadata");
     doc.moveDown(0.5);
     doc.font('Helvetica').fontSize(11).fillColor('#cbd5e1');
     doc.text(`Scan ID: ${scan.id}`);
@@ -356,11 +425,29 @@ exports.generatePdfReport = async (req, res) => {
     doc.text(`Target: ${vulns.target || "Unknown"}`);
     const scanDate = new Date(scan.createdAt || scan.scanDate).toLocaleString();
     doc.text(`Completed: ${scanDate}`);
+    doc.moveDown(1);
+
+    // 🔥 Upgrade 6: Scan-Type Specific Report Sections
+    doc.fillColor('#60a5fa').font('Helvetica-Bold').fontSize(14).text('Scan Intelligence Summary');
+    doc.moveDown(0.5);
+
+    let scanSummary = "";
+    if (scanProfile === "Quick Scan") scanSummary = "Quick scan identifies commonly exposed services. It may miss deeper vulnerabilities.";
+    else if (scanProfile === "Stealth Scan") scanSummary = "Stealth scan attempts to evade IDS/IPS detection. Useful for real attacker simulation.";
+    else if (scanProfile === "Full Scan") scanSummary = "Full scan provides complete port coverage, service detection, and OS fingerprinting.";
+    else if (scanProfile === "Vulnerability Scan") scanSummary = "Vulnerability scan uses NSE scripts to detect known CVEs and misconfigurations.";
+    else if (scanProfile === "SSL/TLS Scan") scanSummary = "SSL/TLS scan evaluates encryption strength, certificate validity, and cipher resilience.";
+    else if (scanProfile === "Header Audit") scanSummary = "Header audit evaluates HTTP security headers like CSP, HSTS, and X-Frame-Options.";
+    else if (scanProfile === "CMS Detection") scanSummary = "CMS scan identifies frameworks like WordPress and checks for outdated plugins/themes.";
+
+    doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(scanSummary, { width: 500 });
+    
     const metaBottomY = doc.y;
     
     // Draw Risk Pie Chart natively floating in top right corners!
     const cx = doc.page.width - 120;
-    const cy = metadataY + 40;
+    // Base cy off the newly auto-calculated doc.y minus offset
+    const cy = doc.y - 60;
     const r = 35;
     const openCount = portFindings.length;
     
@@ -377,7 +464,8 @@ exports.generatePdfReport = async (req, res) => {
     doc.y = Math.max(metaBottomY, cy + r + 10) + 20;
 
     // Port Density Bar (Background Track + Foreground Gradient)
-    doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text("Attack Surface Density", 50, doc.y);
+    doc.x = 50;
+    doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text("Attack Surface Density");
     doc.moveDown(0.5);
     
     // Background Track
@@ -393,14 +481,205 @@ exports.generatePdfReport = async (req, res) => {
     }
     
     doc.y = densityY + 20;
-    doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(`Total Open Ports: ${openCount}`, 50, doc.y);
+    doc.x = 50;
+    doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(`Total Open Ports: ${openCount}`);
     doc.moveDown(2);
+
+    // 🔥 Upgrade 7: Executive Risk Summary (MOVED UP)
+    doc.fillColor('#f43f5e').font('Helvetica-Bold').fontSize(14).text('Executive Risk Summary', 50, doc.y);
+    doc.moveDown(0.5);
+
+    let riskSummary = `The system exposes ${portFindings.length} open ports. `;
+    riskSummary += `${criticalPortCount} are classified as high-risk entry points. `;
+
+    if (criticalPortCount > 5) {
+        riskSummary += "Immediate remediation is strongly recommended due to high attack surface.";
+    } else if (criticalPortCount > 0) {
+        riskSummary += "Moderate exposure detected. Hardening is recommended.";
+    } else {
+        riskSummary += "Minimal exposure detected. Maintain current security posture.";
+    }
+
+    doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(riskSummary, { width: 500 });
+    doc.moveDown(1);
+
+    // 🔥 CMS SCAN – REPORT CONTENT
+    if (scanProfile === "CMS Detection") {
+        if (doc.y > 600) doc.addPage();
+
+        doc.fillColor('#60a5fa').font('Helvetica-Bold').fontSize(14)
+            .text('Content Management System (CMS) Analysis');
+        doc.moveDown(0.5);
+
+        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10)
+            .text('The scan attempted to fingerprint CMS frameworks, enumerate plugins/themes, and detect outdated components or misconfigurations.', { width: 500 });
+        doc.moveDown();
+
+        const cmsFindings = otherFindings.filter(f => f.type === "Outdated CMS" || f.description.toLowerCase().includes("wordpress") || f.description.toLowerCase().includes("plugin"));
+
+        if (cmsFindings.length === 0) {
+            doc.fillColor('#22c55e').font('Helvetica-Bold')
+                .text('[SECURE] No outdated CMS components or vulnerable plugins detected.');
+            doc.moveDown();
+        } else {
+            cmsFindings.forEach((cf, i) => {
+                if (doc.y > 720) doc.addPage();
+
+                doc.fillColor('#ef4444').font('Helvetica-Bold')
+                    .text(`${i + 1}. CMS Finding`);
+                
+                doc.fillColor('#cbd5e1').font('Helvetica')
+                    .text(`Details: ${cf.description}`);
+
+                let recommendation = "Update CMS core, plugins, and themes to latest versions.";
+
+                if (cf.description.toLowerCase().includes("wordpress")) {
+                    recommendation = "Disable XML-RPC if unused, enforce strong admin credentials, and restrict wp-admin access.";
+                }
+
+                if (cf.description.toLowerCase().includes("plugin")) {
+                    recommendation = "Remove unused plugins and patch vulnerable ones immediately.";
+                }
+
+                doc.fillColor('#10b981').font('Helvetica-Oblique')
+                    .text(`Recommendation: ${recommendation}`);
+                
+                doc.moveDown();
+            });
+        }
+
+        // CMS Risk Summary
+        doc.fillColor('#f97316').font('Helvetica-Bold').fontSize(12)
+            .text('CMS Risk Overview');
+        doc.moveDown(0.5);
+
+        let cmsRisk = "CMS platforms are frequent targets for automated exploitation due to plugin vulnerabilities and weak configurations. ";
+
+        if (cmsFindings.length > 3) {
+            cmsRisk += "Multiple issues detected → HIGH risk of compromise.";
+        } else if (cmsFindings.length > 0) {
+            cmsRisk += "Limited vulnerabilities detected → MODERATE risk.";
+        } else {
+            cmsRisk += "No major CMS weaknesses detected → LOW risk.";
+        }
+
+        doc.fillColor('#cbd5e1').font('Helvetica')
+            .text(cmsRisk, { width: 500 });
+
+        doc.moveDown();
+    }
+
+    // 🔥 HTTP HEADER AUDIT – REPORT CONTENT
+    if (scanProfile === "Header Audit") {
+        if (doc.y > 600) doc.addPage();
+
+        doc.fillColor('#60a5fa').font('Helvetica-Bold').fontSize(14)
+            .text('HTTP Security Header Analysis');
+        doc.moveDown(0.5);
+
+        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10)
+            .text('This section evaluates critical HTTP response headers that protect against XSS, clickjacking, MIME sniffing, and protocol downgrade attacks.', { width: 500 });
+        doc.moveDown();
+
+        const headers = [
+            "Strict-Transport-Security",
+            "Content-Security-Policy",
+            "X-Frame-Options",
+            "X-Content-Type-Options",
+            "Referrer-Policy",
+            "Permissions-Policy"
+        ];
+
+        const missingHeaders = otherFindings.filter(f => f.type === "Missing Header");
+
+        if (missingHeaders.length === 0) {
+            doc.fillColor('#22c55e').font('Helvetica-Bold')
+                .text('[SECURE] All critical security headers appear to be configured.');
+            doc.moveDown();
+        } else {
+            missingHeaders.forEach((mh, i) => {
+                if (doc.y > 720) doc.addPage();
+
+                const header = mh.description.replace('MISSING HEADERS:', '').trim();
+
+                doc.fillColor('#ef4444').font('Helvetica-Bold')
+                    .text(`${i + 1}. Missing Header: ${header}`);
+
+                let recommendation = "";
+
+                switch (true) {
+                    case header.includes("Strict-Transport-Security"):
+                        recommendation = "Enforce HTTPS with HSTS to prevent downgrade attacks.";
+                        break;
+                    case header.includes("Content-Security-Policy"):
+                        recommendation = "Define CSP to mitigate XSS and data injection attacks.";
+                        break;
+                    case header.includes("X-Frame-Options"):
+                        recommendation = "Set to DENY or SAMEORIGIN to prevent clickjacking.";
+                        break;
+                    case header.includes("X-Content-Type-Options"):
+                        recommendation = "Set nosniff to prevent MIME type attacks.";
+                        break;
+                    case header.includes("Referrer-Policy"):
+                        recommendation = "Restrict referrer leakage using strict-origin or no-referrer.";
+                        break;
+                    default:
+                        recommendation = "Configure this header to improve application security posture.";
+                }
+
+                doc.fillColor('#10b981').font('Helvetica-Oblique')
+                    .text(`Recommendation: ${recommendation}`);
+
+                doc.moveDown();
+            });
+        }
+
+        // Header Risk Summary
+        doc.fillColor('#f97316').font('Helvetica-Bold').fontSize(12)
+            .text('Header Security Risk Overview');
+        doc.moveDown(0.5);
+
+        let headerRisk = `Detected ${missingHeaders.length} missing security headers. `;
+
+        if (missingHeaders.length >= 4) {
+            headerRisk += "HIGH risk – application is vulnerable to multiple client-side attacks.";
+        } else if (missingHeaders.length > 0) {
+            headerRisk += "MODERATE risk – partial protection is missing.";
+        } else {
+            headerRisk += "LOW risk – headers are properly configured.";
+        }
+
+        doc.fillColor('#cbd5e1').font('Helvetica')
+            .text(headerRisk, { width: 500 });
+
+        doc.moveDown();
+    }
+
+    // 🔥 Attack Scenarios (Only if vulnerable)
+    const isVulnerable = otherFindings.length > 0 || criticalPortCount > 0;
+    if (isVulnerable && (scanProfile === "CMS Detection" || scanProfile === "Header Audit" || scanProfile === "Full Scan" || scanProfile === "Vulnerability Scan")) {
+        if (doc.y > 700) doc.addPage();
+        doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(12)
+            .text('Potential Attack Scenarios');
+        doc.moveDown(0.5);
+
+        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10)
+            .text('- Exploitation of outdated CMS plugins leading to remote code execution.\n' +
+                  '- Cross-Site Scripting (XSS) due to missing Content-Security-Policy.\n' +
+                  '- Clickjacking attacks due to missing X-Frame-Options.\n' +
+                  '- Session hijacking or downgrade attacks due to missing HSTS.\n' +
+                  '- Automated bot exploitation targeting known CMS vulnerabilities.',
+                  { width: 500 });
+
+        doc.moveDown(2);
+    }
 
     // Nmap Results Summary Table
     if (portFindings.length > 0) {
         // Ensure we have enough space before the table header
         checkPageBreak(700);
-        doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text('Nmap Results Summary', 50, doc.y);
+        doc.x = 50;
+        doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text('Nmap Results Summary');
         doc.moveDown(0.5);
         drawTableHeaders();
         
@@ -432,23 +711,15 @@ exports.generatePdfReport = async (req, res) => {
         doc.fillColor('#60a5fa').font('Helvetica-Bold').fontSize(14).text('AI Threat Analysis (JARVIS Insights)', 50, doc.y);
         doc.moveDown(0.5);
         
+        // 🔥 Upgrade 5: Use generateAdvancedInsight
         const insights = portFindings.map(pf => {
             const pMatch = pf.endpoint.match(/\d+/);
             const pNum = pMatch ? parseInt(pMatch[0]) : 0;
-            let insight = `Verify exposure via WAF/Firewall.`;
-            switch (pNum) {
-                case 80:
-                case 443: insight = "Implement a Web Application Firewall (WAF) to filter SQLi and XSS payloads."; break;
-                case 5000:
-                case 8080:
-                case 8081: insight = "These are common dev-tunnel or application ports. Ensure they are not exposing raw environment variables or administrative debug logs."; break;
-                case 3306:
-                case 5432: insight = "Database exposure detected. Enforce strict IP-white-listing and disable remote root login."; break;
-                case 21: insight = "FTP is plaintext. Use SFTP."; break;
-                case 22: insight = "Ensure key-based auth prevents dictionary attacks."; break;
-                case 23: insight = "Telnet is unsecure. Migrate to SSH."; break;
-            }
-            return { port: pNum, text: insight };
+
+            return {
+                port: pNum,
+                text: generateAdvancedInsight(pNum, scanProfile, pf.description)
+            };
         });
 
         const colWidth = 220;
@@ -490,7 +761,7 @@ exports.generatePdfReport = async (req, res) => {
     // Vulnerabilities
     if (otherFindings.length > 0) {
         if (doc.y > 600) doc.addPage();
-        doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text('Vulnerability Discoveries', 50, doc.y);
+        doc.fillColor('#f8fafc').font('Helvetica-Bold').fontSize(14).text('Vulnerability Discoveries');
         doc.moveDown(0.5);
         
         otherFindings.forEach((finding, index) => {
@@ -500,10 +771,26 @@ exports.generatePdfReport = async (req, res) => {
             if (finding.severity === "High" || finding.severity === "Critical") color = '#ef4444';
             else if (finding.severity === "Medium") color = '#f97316';
 
-            const currentY = doc.y;
-            doc.fillColor(color).font('Helvetica-Bold').fontSize(11).text(`${index + 1}. [${finding.severity}] ${finding.type}`, 50, currentY);
-            doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(`Endpoint: ${finding.endpoint}`, 50, doc.y);
-            doc.text(`Details: ${finding.description}`, 50, doc.y);
+            doc.x = 50;
+            // Letting PDFKit flow the Y automatically solves the overlap bug instantly
+            doc.fillColor(color).font('Helvetica-Bold').fontSize(11).text(`${index + 1}. [${finding.severity}] ${finding.type}`);
+            doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text(`Endpoint: ${finding.endpoint}`);
+            doc.text(`Details: ${finding.description}`);
+
+            // Dynamic Remediation Suggestions (Retaining old logic but enhancing with new logic if present)
+            let suggestion = "Review the identified vulnerability and apply vendor security patches.";
+            if (finding.type === "Missing Header") suggestion = "Configure your web server/proxy to permanently enforce this HTTP security header.";
+            if (finding.type === "Weak Cipher") suggestion = "Disable ancient SSL/TLS versions in your server config. Force AEAD ciphers and TLS 1.2+ minimum.";
+            if (finding.type === "Certificate Expiry") suggestion = "Renew the SSL certificate immediately before it triggers browser blocks and disrupts operations.";
+            if (finding.type === "Outdated CMS") suggestion = "Immediately update this software stack to the latest stable release to patch public CVE exploits.";
+            if (finding.type === "Vulnerability Module Alert") suggestion = "Aggressively patch or isolate the vulnerable service identified by the Nmap NSE script.";
+
+            // 🔥 Upgrade 8: Render the finding.recommendation explicitly if supplied
+            if (finding.recommendation) {
+                suggestion = finding.recommendation;
+            }
+
+            doc.fillColor('#10b981').font('Helvetica-Oblique').fontSize(9).text(`Recommendation: ${suggestion}`);
             doc.moveDown(1);
         });
     }
@@ -515,79 +802,92 @@ exports.generatePdfReport = async (req, res) => {
 
     if (weakCipherFindings.length > 0) {
         if (doc.y > 600) doc.addPage();
-        doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(14).text('Weak SSL/TLS Ciphers Detected', 50, doc.y);
+        doc.x = 50;
+        doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(14).text('Weak SSL/TLS Ciphers Detected');
         doc.moveDown(0.5);
         doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10)
-            .text('The following cipher suites were identified as Grade C, D, or F — they are vulnerable to downgrade or cryptographic attacks.', 50, doc.y, { width: 490 });
+            .text('The following cipher suites were identified as Grade C, D, or F — they are vulnerable to downgrade or cryptographic attacks.', { width: 490 });
         doc.moveDown();
         weakCipherFindings.forEach((cf, i) => {
             if (doc.y > 720) doc.addPage();
-            doc.fillColor('#f97316').font('Helvetica-Bold').text(`${i + 1}. Weak Cipher:`, 50, doc.y, { continued: true });
-            doc.fillColor('#cbd5e1').font('Helvetica').text(` ${cf.description.replace(/\s+/g, ' ').trim()}`);
+            doc.x = 50;
+            doc.fillColor('#f97316').font('Helvetica-Bold').text(`${i + 1}. Weak Cipher: `, { continued: true });
+            doc.fillColor('#cbd5e1').font('Helvetica').text(`${cf.description.replace(/\s+/g, ' ').trim()}`);
+            doc.moveDown(0.2);
         });
         doc.moveDown();
     }
 
     if (missingHeaderFindings.length > 0) {
         if (doc.y > 600) doc.addPage();
-        doc.fillColor('#f97316').font('Helvetica-Bold').fontSize(14).text('Missing Security Headers', 50, doc.y);
+        doc.x = 50;
+        doc.fillColor('#f97316').font('Helvetica-Bold').fontSize(14).text('Missing Security Headers');
         doc.moveDown(0.5);
         doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10)
-            .text('Critical HTTP response headers were absent. These protect against clickjacking, XSS, and protocol downgrades.', 50, doc.y, { width: 490 });
+            .text('Critical HTTP response headers were absent. These protect against clickjacking, XSS, and protocol downgrades.', { width: 490 });
         doc.moveDown();
         missingHeaderFindings.forEach((mh, i) => {
             if (doc.y > 720) doc.addPage();
+            doc.x = 50;
             const rawHeader = mh.description.replace('MISSING HEADERS:', '').trim();
-            doc.fillColor('#fbbf24').font('Helvetica-Bold').text(`${i + 1}. Missing Header:`, 50, doc.y, { continued: true });
-            doc.fillColor('#cbd5e1').font('Helvetica').text(` ${rawHeader}`);
+            doc.fillColor('#fbbf24').font('Helvetica-Bold').text(`${i + 1}. Missing Header: `, { continued: true });
+            doc.fillColor('#cbd5e1').font('Helvetica').text(`${rawHeader}`);
+            doc.moveDown(0.2); 
         });
         doc.moveDown();
     }
 
     if (outdatedCmsFindings.length > 0) {
         if (doc.y > 600) doc.addPage();
-        doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(14).text('Outdated CMS / Software Detected', 50, doc.y);
+        doc.x = 50;
+        doc.fillColor('#ef4444').font('Helvetica-Bold').fontSize(14).text('Outdated CMS / Software Detected');
         doc.moveDown(0.5);
         outdatedCmsFindings.forEach((oc, i) => {
             if (doc.y > 720) doc.addPage();
+            doc.x = 50;
             const rawCms = oc.description.replace('OUTDATED CMS:', '').trim();
-            doc.fillColor('#f97316').font('Helvetica-Bold').text(`${i + 1}. Outdated Component:`, 50, doc.y, { continued: true });
-            doc.fillColor('#cbd5e1').font('Helvetica').text(` ${rawCms}`);
+            doc.fillColor('#f97316').font('Helvetica-Bold').text(`${i + 1}. Outdated Component: `, { continued: true });
+            doc.fillColor('#cbd5e1').font('Helvetica').text(`${rawCms}`);
+            doc.moveDown(0.2);
         });
         doc.moveDown();
-    }
-
-    // Explicit SSL/TLS Sector Check
+       // Explicit SSL/TLS Sector Check
     if (scanProfile === "SSL_SCAN" || scanProfile === "SSL/TLS Scan") {
         if (doc.y > 600) doc.addPage();
-        doc.fillColor('#10b981').font('Helvetica-Bold').fontSize(14).text('Encryption Strength Analysis', 50, doc.y);
+        doc.x = 50;
+        doc.fillColor('#10b981').font('Helvetica-Bold').fontSize(14).text('Encryption Strength Analysis');
         doc.moveDown(0.5);
-        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text('This section outlines the resilience of the negotiated cipher suites and the cryptographic validity of the endpoint certificate.', 50, doc.y, { width: 500 });
+        doc.fillColor('#cbd5e1').font('Helvetica').fontSize(10).text('This section outlines the resilience of the negotiated cipher suites and the cryptographic validity of the endpoint certificate.', { width: 500 });
         doc.moveDown();
         
         const certExpiry = otherFindings.find(f => f.type === "Certificate Expiry");
         const weakCiphers = otherFindings.filter(f => f.type === "Weak Cipher");
 
         if (certExpiry) {
-            doc.fillColor('#ef4444').font('Helvetica-Bold').text(`[CRITICAL] ${certExpiry.description}`, 50, doc.y);
+            doc.x = 50;
+            doc.fillColor('#ef4444').font('Helvetica-Bold').text(`[CRITICAL] ${certExpiry.description}`);
             doc.moveDown();
         } else {
-            doc.fillColor('#22c55e').font('Helvetica-Bold').text(`[SECURE] Certificate is valid and not objectively expired.`, 50, doc.y);
+            doc.x = 50;
+            doc.fillColor('#22c55e').font('Helvetica-Bold').text(`[SECURE] Certificate is valid and not objectively expired.`);
             doc.moveDown();
         }
 
         if (weakCiphers.length > 0) {
-            doc.fillColor('#f97316').font('Helvetica-Bold').text(`Detected Weak Ciphers (Grade C/D/F):`, 50, doc.y);
+            doc.x = 50;
+            doc.fillColor('#f97316').font('Helvetica-Bold').text(`Detected Weak Ciphers (Grade C/D/F):`);
             doc.moveDown(0.5);
             weakCiphers.forEach(cf => {
-                // Remove extra whitespace from Nmap cipher strings for aesthetic print
-                doc.fillColor('#cbd5e1').font('Helvetica').text(`- ${cf.description.replace(/\s+/g, ' ').trim()}`, 60, doc.y);
+                doc.x = 60;
+                doc.fillColor('#cbd5e1').font('Helvetica').text(`- ${cf.description.replace(/\\s+/g, ' ').trim()}`);
             });
             doc.moveDown();
         } else {
-            doc.fillColor('#22c55e').font('Helvetica-Bold').text(`[SECURE] No explicit Grade C, D, or F ciphers detected on active listeners.`, 50, doc.y);
+            doc.x = 50;
+            doc.fillColor('#22c55e').font('Helvetica-Bold').text(`[SECURE] No explicit Grade C, D, or F ciphers detected on active listeners.`);
             doc.moveDown();
         }
+    }
     }
 
     doc.end();

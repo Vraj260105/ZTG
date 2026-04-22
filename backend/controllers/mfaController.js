@@ -20,7 +20,9 @@ const jwt       = require("jsonwebtoken");
 const { Op }    = require("sequelize");
 const User             = require("../models/User");
 const MfaChangeRequest = require("../models/MfaChangeRequest");
+const ActiveSession    = require("../models/ActiveSession");
 const { sendMfaResetApproved, sendMfaResetRejected } = require("../services/emailService");
+const ActivityLog = require("../models/ActivityLog");
 
 // ── Setup: Generate TOTP secret + QR code ────────────────────────────────────
 exports.setupTotp = async (req, res) => {
@@ -49,6 +51,17 @@ exports.setupTotp = async (req, res) => {
     user.mfaSecret  = secret.base32;
     user.mfaEnabled = false;  // stays false until first code confirmed
     await user.save();
+
+    // Log: MFA setup initiated
+    ActivityLog.create({
+      userId: user.id,
+      action: "MFA_SETUP_INITIATED",
+      resource: "TOTP secret generated — awaiting first-code confirmation",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      riskScore: 10,
+      decision: "ALLOW"
+    }).catch(() => {});
 
     // Generate QR code as a data URI for the frontend to display
     const qrDataUrl = await qrcode.toDataURL(secret.otpauth_url);
@@ -102,10 +115,21 @@ exports.verifyTotp = async (req, res) => {
 
     if (!isValid) {
       user.mfaFailedAttempts += 1;
-      if (user.mfaFailedAttempts >= 5) {
+      const isLocked = user.mfaFailedAttempts >= 5;
+      if (isLocked) {
         user.mfaLockUntil = new Date(now.getTime() + 5 * 60 * 1000); // 5 min lockout
       }
       await user.save();
+      // Log: failed MFA attempt
+      ActivityLog.create({
+        userId: user.id,
+        action: "MFA_VERIFY_FAILED",
+        resource: isLocked ? "MFA locked after 5 failed attempts" : `Failed attempt ${user.mfaFailedAttempts}/5`,
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        riskScore: isLocked ? 90 : 60,
+        decision: isLocked ? "BLOCK" : "REVIEW"
+      }).catch(() => {});
       return res.status(401).json({
         message: "Invalid or expired code. Codes are valid for 90 seconds."
       });
@@ -119,13 +143,31 @@ exports.verifyTotp = async (req, res) => {
       // First-time enrollment — activate MFA
       user.mfaEnabled = true;
       await user.save();
+      // Log: MFA enrollment completed
+      ActivityLog.create({
+        userId: user.id,
+        action: "MFA_ENROLLED",
+        resource: "TOTP authenticator enrolled successfully",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        riskScore: 5,
+        decision: "ALLOW"
+      }).catch(() => {});
       // Generate full JWT to log the user in immediately after setup
       const jti   = crypto.randomUUID();
-      const fullToken = jwt.sign(
+      const decoded = jwt.sign(
         { id: user.id, role: user.role, jti },
         process.env.JWT_SECRET,
         { expiresIn: "2h" }
       );
+      const fullToken = decoded;
+      const expMs = Date.now() + 2 * 60 * 60 * 1000;
+      ActiveSession.create({
+        userId: user.id, jti, role: user.role,
+        ip: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers["user-agent"] || "",
+        expiresAt: new Date(expMs),
+      }).catch(() => {}); // non-blocking
       return res.status(200).json({ 
         message: "MFA activated successfully. Your account is now protected.",
         token: fullToken,
@@ -137,12 +179,29 @@ exports.verifyTotp = async (req, res) => {
 
     // Login completion — issue full JWT
     if (req.user.mfaPending) {
+      // Log: MFA login verification success
+      ActivityLog.create({
+        userId: user.id,
+        action: "MFA_VERIFY_SUCCESS",
+        resource: "TOTP code accepted — login completed",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        riskScore: 5,
+        decision: "ALLOW"
+      }).catch(() => {});
       const jti   = crypto.randomUUID();
       const fullToken = jwt.sign(
         { id: user.id, role: user.role, jti },
         process.env.JWT_SECRET,
         { expiresIn: "2h" }
       );
+      const expMs = Date.now() + 2 * 60 * 60 * 1000;
+      ActiveSession.create({
+        userId: user.id, jti, role: user.role,
+        ip: req.ip || req.connection?.remoteAddress,
+        userAgent: req.headers["user-agent"] || "",
+        expiresAt: new Date(expMs),
+      }).catch(() => {}); // non-blocking
       return res.status(200).json({
         message: "Verification successful",
         token:   fullToken,
@@ -172,6 +231,16 @@ exports.requestChange = async (req, res) => {
       user.mfaSecret = null;
       user.mfaEnabled = false;
       await user.save();
+      // [Audit] Log admin self-reset — high-privilege action must be traceable
+      ActivityLog.create({
+        userId,
+        action: "MFA_RESET_SELF",
+        resource: "Admin self-reset MFA — must re-enroll authenticator",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        riskScore: 40,
+        decision: "REVIEW"
+      }).catch(() => {});
       return res.status(200).json({ message: "Admin MFA reset activated automatically. You must log in again to set up the new authenticator.", bypass: true });
     }
 
@@ -181,6 +250,16 @@ exports.requestChange = async (req, res) => {
     }
     
     await MfaChangeRequest.create({ userId, status: "pending", reason: reason || "" });
+    // Log: user submitted MFA reset request
+    ActivityLog.create({
+      userId,
+      action: "MFA_RESET_REQUESTED",
+      resource: "MFA reset request submitted — awaiting admin approval",
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      riskScore: 30,
+      decision: "REVIEW"
+    }).catch(() => {});
     res.status(201).json({ message: "MFA reset request submitted to admin. You will be able to set up a new authenticator once approved." });
   } catch (error) {
     console.error("Request change error:", error.message);
@@ -206,6 +285,16 @@ exports.approveChange = async (req, res) => {
       user.mfaSecret  = null;
       user.mfaEnabled = false;
       await user.save();
+      // Log for the affected user so they see it in My Activity
+      ActivityLog.create({
+        userId: request.userId,
+        action: "MFA_RESET_APPROVED",
+        resource: "Admin approved your MFA reset — please re-enroll your authenticator",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        riskScore: 10,
+        decision: "ALLOW"
+      }).catch(() => {});
     }
 
     // [Phase 4] Fire approval email — non-blocking
@@ -237,6 +326,16 @@ exports.rejectChange = async (req, res) => {
     request.approvedBy   = req.user.id;
     request.adminMessage = reason.trim();
     await request.save();
+    // Log for the affected user so they see it in My Activity
+    ActivityLog.create({
+      userId: request.userId,
+      action: "MFA_RESET_REJECTED",
+      resource: `Admin rejected your MFA reset request: ${reason.trim()}`,
+      ipAddress: req.ip,
+      userAgent: req.headers["user-agent"],
+      riskScore: 10,
+      decision: "REVIEW"
+    }).catch(() => {});
 
     // [Phase 4] Fire rejection email — non-blocking
     const rejectedUser = await User.findByPk(request.userId, { attributes: ["email"] });

@@ -129,12 +129,23 @@ exports.approveRequest = async (req, res) => {
       action: "access_granted",
       fileId: request.fileId,
       department: targetUser ? targetUser.department : null,
-      resource: request.fileId.toString(),
+      resource: targetFile ? (targetFile.originalName || targetFile.filename) : request.fileId.toString(),
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"],
       riskScore: grantRisk.riskScore,
       decision: grantRisk.decision
     });
+    // Log for the requester so they see the decision in My Activity
+    ActivityLog.create({
+      userId: request.userId,
+      action: "access_approved",
+      fileId: request.fileId,
+      department: targetUser ? targetUser.department : null,
+      resource: targetFile ? (targetFile.originalName || targetFile.filename) : request.fileId.toString(),
+      ipAddress: req.ip,
+      riskScore: 5,
+      decision: "ALLOW"
+    }).catch(() => {});
 
     // [Phase 4] Fire approval email — non-blocking
     if (targetUser?.email) {
@@ -195,12 +206,23 @@ exports.rejectRequest = async (req, res) => {
       action: "access_rejected",
       fileId: request.fileId,
       department: targetUser ? targetUser.department : null,
-      resource: request.fileId.toString(),
+      resource: targetFile ? (targetFile.originalName || targetFile.filename) : request.fileId.toString(),
       ipAddress: req.ip,
       userAgent: req.headers["user-agent"],
       riskScore: rejectRisk.riskScore,
       decision: rejectRisk.decision
     });
+    // Log for the requester so they see the decision in My Activity
+    ActivityLog.create({
+      userId: request.userId,
+      action: "access_rejected",
+      fileId: request.fileId,
+      department: targetUser ? targetUser.department : null,
+      resource: targetFile ? (targetFile.originalName || targetFile.filename) : request.fileId.toString(),
+      ipAddress: req.ip,
+      riskScore: 20,
+      decision: "REVIEW"
+    }).catch(() => {});
 
     // [Phase 4] Fire rejection email — non-blocking
     if (targetUser?.email) {
@@ -215,5 +237,41 @@ exports.rejectRequest = async (req, res) => {
   } catch (error) {
     console.error("Reject request error:", error);
     res.status(500).json({ message: "Failed to reject request" });
+  }
+};
+
+// getHistory — resolved/rejected requests
+// Admin sees all; staff/senior see only requests they approved
+exports.getHistory = async (req, res) => {
+  try {
+    const { Op } = require("sequelize");
+    const userRole = req.user.role;
+    const userId   = req.user.id;
+
+    // Interns have no approval rights \u2014 no history to show
+    if (userRole === "intern") {
+      return res.status(200).json({ history: [] });
+    }
+
+    const baseWhere = { status: { [Op.ne]: "pending" } };
+
+    // Non-admins only see requests they personally approved or rejected
+    if (userRole !== "admin" && userRole !== "super_admin") {
+      baseWhere.approvedBy = userId;
+    }
+
+    const history = await AccessRequest.findAll({
+      where: baseWhere,
+      include: [
+        { model: User, as: "Requester", attributes: ["id", "name", "email", "role"] },
+        { model: File, attributes: ["id", "filename", "department"] }
+      ],
+      order: [["updatedAt", "DESC"]]
+    });
+
+    res.status(200).json({ history });
+  } catch (error) {
+    console.error("Fetch request history error:", error);
+    res.status(500).json({ message: "Failed to fetch request history" });
   }
 };

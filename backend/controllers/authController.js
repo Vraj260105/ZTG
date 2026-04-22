@@ -4,6 +4,7 @@ const crypto = require("crypto");
 const User          = require("../models/User");
 const ActivityLog   = require("../models/ActivityLog");
 const Alert         = require("../models/Alert");
+const ActiveSession = require("../models/ActiveSession");
 const blacklist     = require("../services/tokenBlacklist");
 const { computeRisk } = require("../services/riskEngine");
 const { createAlert } = require("../services/alertService");
@@ -17,7 +18,7 @@ const { Op }        = require("sequelize");
 // =======================
 exports.register = async (req, res) => {
   try {
-    const { name, email, password, department, designation, designation_level } = req.body;
+    const { name, email, password, department, designation, designation_level, role: requestedRole } = req.body;
 
     // Input validation
     if (!email || !password) {
@@ -30,13 +31,32 @@ exports.register = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 8 characters" });
     }
 
+    let assignedRole = "intern"; // [A3] Public registration is always intern
+
+    // Admin Override Check: Allow AddUser.tsx to assign roles if the request bears an admin token
+    const authHeader = req.headers.authorization;
+    if (authHeader && authHeader.startsWith("Bearer ")) {
+      try {
+        const token = authHeader.split(" ")[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // [H2] Reject revoked tokens — prevents logged-out admins from elevating roles
+        if (!blacklist.has(decoded.jti)) {
+          if (decoded.role === "admin" || decoded.role === "super_admin" || decoded.role === "soc") {
+            assignedRole = requestedRole || "intern"; // Trust the admin's requested role
+          }
+        }
+      } catch (err) {
+        // Bad token? Ignore and fallback to intern gracefully
+      }
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const newUser = await User.create({
       name:               name || null,
       email,
       password:           hashedPassword,
-      role:               "intern",          // [A3] Always intern — never from req.body
+      role:               assignedRole, 
       department,
       designation,
       designation_level:  designation_level ? Number(designation_level) : null,
@@ -140,6 +160,7 @@ exports.login = async (req, res) => {
       user.login_failed_attempts += 1;
 
       if (user.login_failed_attempts >= 5) {
+        // ── 5th attempt → lockout ──────────────────────────────────────────
         user.is_blocked    = true;
         user.blocked_until = new Date(Date.now() + 24 * 60 * 60 * 1000);
         user.block_reason  = "FAILED_ATTEMPTS";
@@ -163,6 +184,20 @@ exports.login = async (req, res) => {
         });
 
         console.log(`[SECURITY ALERT] Account locked: ${user.email}`);
+      } else {
+        // ── Attempts 1–4 → log individually so SOC sees accumulation ──────
+        // Risk escalates: attempt 1=40, 2=50, 3=60, 4=70
+        const failRisk = Math.min(70, 30 + user.login_failed_attempts * 10);
+        ActivityLog.create({
+          userId:    user.id,
+          riskScore: failRisk,
+          action:    "LOGIN_FAILED",
+          status:    "FAILED",
+          department: user.department,
+          resource:  `Failed login attempt ${user.login_failed_attempts} for ${user.email}`,
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+        }).catch(() => {}); // fire-and-forget — never delay the response
       }
 
       await user.save();
@@ -256,6 +291,8 @@ exports.logout = async (req, res) => {
     const { jti, exp } = req.user;
     if (jti) {
       blacklist.add(jti, exp);
+      // Prune the session from the persistent tracker
+      ActiveSession.destroy({ where: { jti } }).catch(() => {});
     }
     res.status(200).json({ message: "Logged out successfully" });
   } catch (error) {

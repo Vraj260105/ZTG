@@ -42,18 +42,27 @@ async function verifyToken(req, res, next) {
     // Skip for temp MFA tokens (they only carry { id, mfaPending })
     if (!decoded.mfaPending) {
       const user = await User.findByPk(decoded.id, {
-        attributes: ["id", "is_blocked", "block_reason"]
+        attributes: ["id", "is_blocked", "block_reason", "blocked_until"]
       });
       if (!user) {
         return res.status(401).json({ message: "User not found" });
       }
+      // Permanent block
       if (user.is_blocked) {
         const messages = {
           FAILED_ATTEMPTS: "Account locked due to multiple failed attempts.",
-          ADMIN_BLOCK:     "Account suspended by administrator."
+          ADMIN_BLOCK:     "Account suspended by administrator.",
+          LOCKOUT:         "Account temporarily locked by administrator."
         };
         return res.status(403).json({
           message: messages[user.block_reason] || "Account blocked."
+        });
+      }
+      // Time-limited lockout (blocked_until set, is_blocked still false)
+      if (user.blocked_until && new Date(user.blocked_until) > new Date()) {
+        return res.status(403).json({
+          message: `Account temporarily locked until ${new Date(user.blocked_until).toLocaleString()}.`,
+          lockedUntil: user.blocked_until
         });
       }
     }

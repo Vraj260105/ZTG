@@ -36,4 +36,11 @@ router.post(
   accessRequestController.rejectRequest
 );
 
+// Get all request history (admin only)
+router.get(
+  "/history",
+  verifyToken,
+  accessRequestController.getHistory
+);
+
 module.exports = router;

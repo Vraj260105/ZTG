@@ -1,262 +1,276 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
-import { Upload } from "lucide-react";
+import UserProfileCard from "@/components/UserProfileCard";
+import {
+  Upload, FileUp, Lock, ShieldCheck, Loader2, FolderOpen,
+} from "lucide-react";
 import api from "../api/axios";
 
+const ALL_DEPTS = ["All Departments", "IT", "HR", "ACCOUNTS", "MARKETING"];
+
 const EmployeeUpload = () => {
+  const navigate = useNavigate();
+  const role = localStorage.getItem("ztg_role") || "intern";
 
-const role = localStorage.getItem("ztg_role") || "intern";
+  const isIntern = role === "intern";
+  const isStaff  = role === "staff";
+  const isSenior = role === "senior";
 
-const isIntern = role === "intern";
-const isStaff = role === "staff";
-const isSenior = role === "senior";
+  const [file,              setFile]              = useState<File | null>(null);
+  const [sensitivity,       setSensitivity]       = useState("low");
+  const [targetDepartments, setTargetDepartments] = useState<string[]>(["All Departments"]);
+  const [allowIntern,       setAllowIntern]       = useState(false);
+  const [allowStaff,        setAllowStaff]        = useState(true);
+  const [allowSenior,       setAllowSenior]       = useState(true);
+  const [uploading,         setUploading]         = useState(false);
+  const [uploadSuccess,     setUploadSuccess]     = useState(false);
+  const [dragOver,          setDragOver]          = useState(false);
 
-const [file, setFile] = useState<File | null>(null);
+  // Pre-fill department from profile
+  useEffect(() => {
+    api.get("/api/auth/profile").then(res => {
+      const dept = res.data?.user?.department || res.data?.department || "";
+      if (dept) setTargetDepartments([dept]);
+    }).catch(() => {});
+  }, []);
 
-const [allowIntern, setAllowIntern] = useState(false);
-const [allowStaff, setAllowStaff] = useState(true);
-const [allowSenior, setAllowSenior] = useState(true);
-
-const [sensitivity, setSensitivity] = useState("low");
-const [targetDepartments, setTargetDepartments] = useState<string[]>(["All Departments"]);
-
-// Fetch user's own department to pre-select the dropdown
-useEffect(() => {
-  api.get("/api/auth/profile").then(res => {
-    const dept = res.data?.user?.department || res.data?.department || "";
-    if (dept) setTargetDepartments([dept]);
-  }).catch(() => {}); // silent fail — default stays "All Departments"
-}, []);
-
-useEffect(() => {
-  if (isIntern) {
-    // Interns: Everyone gets access, sensitivity low
-    setAllowIntern(true);
-    setAllowStaff(true);
-    setAllowSenior(true);
-    setSensitivity("low");
-  } else if (isStaff) {
-    // Staff: Cannot remove staff/senior, but intern is optional
-    setAllowIntern(false);
-    setAllowStaff(true);
-    setAllowSenior(true);
-    if (sensitivity === "critical") {
-      setSensitivity("high"); // Fallback if somehow stuck on critical
+  // Role-based permission defaults
+  useEffect(() => {
+    if (isIntern) {
+      setAllowIntern(true); setAllowStaff(true); setAllowSenior(true);
+      setSensitivity("low");
+    } else if (isStaff) {
+      setAllowIntern(false); setAllowStaff(true); setAllowSenior(true);
+    } else if (isSenior) {
+      setAllowIntern(false); setAllowStaff(false); setAllowSenior(true);
     }
-  } else if (isSenior) {
-    // Senior: Cannot remove senior, but intern/staff are optional
-    setAllowIntern(false);
-    setAllowStaff(false);
-    setAllowSenior(true);
-  }
-  // Admins: Default to nothing selected
-}, [role, sensitivity]);
+  }, [role]);
 
-const uploadFile = async () => {
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files[0];
+    if (dropped) setFile(dropped);
+  };
 
+  const toggleDept = (dept: string) => {
+    if (dept === "All Departments") { setTargetDepartments(["All Departments"]); return; }
+    let nd = targetDepartments.filter(d => d !== "All Departments");
+    nd = nd.includes(dept) ? nd.filter(d => d !== dept) : [...nd, dept];
+    setTargetDepartments(nd.length === 0 ? ["All Departments"] : nd);
+  };
 
-if (!file) {
-  alert("Select file first");
-  return;
-}
+  const uploadFile = async () => {
+    if (!file) { alert("Please select a file first."); return; }
+    setUploading(true);
+    const formData = new FormData();
+    formData.append("file",              file);
+    formData.append("allowIntern",       String(allowIntern));
+    formData.append("allowStaff",        String(allowStaff));
+    formData.append("allowSenior",       String(allowSenior));
+    formData.append("sensitivityLevel",  sensitivity);
+    formData.append("targetDepartments", JSON.stringify(targetDepartments));
+    try {
+      await api.post("/api/files/upload", formData);
+      setUploadSuccess(true);
+      setFile(null);
+      setTimeout(() => { setUploadSuccess(false); navigate("/dashboard"); }, 1800);
+    } catch (err: any) {
+      alert(err.response?.data?.message || err.response?.data?.error || "Upload failed. Please try again.");
+    } finally { setUploading(false); }
+  };
 
-const formData = new FormData();
+  // Sensitivity options available by role
+  const sensOptions = [
+    { val: "low",      label: "Low",      desc: "General use",       cls: "border-green-500/40 text-green-400 bg-green-900/20",   disabled: false           },
+    { val: "high",     label: "High",     desc: "Confidential",      cls: "border-orange-500/40 text-orange-400 bg-orange-900/20", disabled: isIntern        },
+    { val: "critical", label: "Critical", desc: "Restricted access", cls: "border-red-500/40 text-red-400 bg-red-900/20",          disabled: isIntern || isStaff },
+  ];
 
-formData.append("file", file);
-formData.append("allowIntern", String(allowIntern));
-formData.append("allowStaff", String(allowStaff));
-formData.append("allowSenior", String(allowSenior));
-formData.append("sensitivityLevel", sensitivity);
-formData.append("targetDepartments", JSON.stringify(targetDepartments));
+  const roleCards = [
+    { key: "intern",  label: "Intern",  val: allowIntern,  toggle: () => setAllowIntern(!allowIntern),  forced: isIntern,  forcedOn: isIntern  },
+    { key: "staff",   label: "Staff",   val: allowStaff,   toggle: () => setAllowStaff(!allowStaff),    forced: isIntern || isStaff, forcedOn: isIntern || isStaff },
+    { key: "senior",  label: "Senior",  val: allowSenior,  toggle: () => setAllowSenior(!allowSenior),  forced: isIntern || isStaff || isSenior, forcedOn: true },
+    { key: "admin",   label: "Admin",   val: true,          toggle: () => {},                            forced: true,      forcedOn: true  },
+  ];
 
-try {
+  return (
+    <div className="flex min-h-screen bg-background text-foreground">
+      <AppSidebar />
 
-  const res = await api.post("/api/files/upload", formData);
+      <main className="flex-1 p-8 overflow-auto">
+        <div className="max-w-5xl mx-auto">
 
-  alert(res.data?.message || "File uploaded successfully");
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <div>
+              <h1 className="text-2xl font-bold flex items-center gap-2">
+                <FolderOpen className="w-6 h-6 text-primary" /> Upload File
+              </h1>
+              <p className="text-sm text-muted-foreground mt-1">
+                Share files securely with your department or the organisation.
+              </p>
+            </div>
+            <div className="mr-14"><UserProfileCard /></div>
+          </div>
 
-  setFile(null);
-  setTargetDepartments(["All Departments"]); // Reset to default after upload
+          {/* Main upload card — two-column grid matching admin FileManagement */}
+          <div className="glass-card rounded-xl border border-border p-8">
+            <div className="grid grid-cols-2 gap-8">
 
-} catch (error: any) {
+              {/* ── LEFT COLUMN: Drop Zone + Sensitivity ────────────────────── */}
+              <div className="flex flex-col gap-6">
 
-  console.error("Upload error:", error);
-  const msg = error.response?.data?.message || error.response?.data?.error || error.message || "Upload failed. Please try again.";
-  alert(`Upload failed: ${msg}`);
+                {/* Drop zone */}
+                <div>
+                  <label className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <FileUp className="w-4 h-4 text-primary" /> Select File
+                  </label>
+                  <label
+                    className={`flex flex-col items-center justify-center w-full h-52 border-2 border-dashed rounded-xl cursor-pointer transition-all group ${
+                      dragOver
+                        ? "border-primary bg-primary/10 scale-[1.01]"
+                        : "border-border hover:border-primary/50 hover:bg-primary/5"
+                    }`}
+                    onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                    onDragLeave={() => setDragOver(false)}
+                    onDrop={handleDrop}
+                  >
+                    <Upload className="w-10 h-10 text-muted-foreground group-hover:text-primary transition-colors mb-3" />
+                    {file ? (
+                      <div className="text-center px-4">
+                        <p className="text-sm font-semibold text-foreground truncate max-w-xs">{file.name}</p>
+                        <p className="text-xs text-muted-foreground mt-1">{(file.size / 1024).toFixed(1)} KB</p>
+                        <span className="mt-2 inline-block text-[10px] px-2 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
+                          ✓ Ready to upload
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <p className="text-sm text-muted-foreground">Click to choose or drag & drop</p>
+                        <p className="text-xs text-muted-foreground/60 mt-1">Any file type supported</p>
+                      </div>
+                    )}
+                    <input type="file" className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+                  </label>
+                </div>
 
-}
+                {/* Sensitivity */}
+                <div>
+                  <label className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <Lock className="w-4 h-4 text-primary" /> Sensitivity Level
+                  </label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {sensOptions.map(s => (
+                      <button
+                        key={s.val}
+                        disabled={s.disabled}
+                        onClick={() => !s.disabled && setSensitivity(s.val)}
+                        className={`p-4 rounded-xl border-2 transition-all text-left ${
+                          sensitivity === s.val && !s.disabled
+                            ? s.cls + " font-bold"
+                            : s.disabled
+                              ? "border-border bg-secondary/20 text-muted-foreground/30 cursor-not-allowed"
+                              : "border-border bg-secondary/30 text-muted-foreground hover:border-border/80"
+                        }`}
+                      >
+                        <p className="text-sm font-semibold">{s.label}</p>
+                        <p className="text-[11px] mt-0.5 opacity-70">{s.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+                  {isIntern && (
+                    <p className="text-[11px] text-muted-foreground mt-2 pl-1">
+                      Interns can only upload Low sensitivity files.
+                    </p>
+                  )}
+                </div>
+              </div>
 
+              {/* ── RIGHT COLUMN: Roles + Departments + Button ───────────────── */}
+              <div className="flex flex-col gap-6">
 
-};
+                {/* Access permissions */}
+                <div>
+                  <label className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                    <ShieldCheck className="w-4 h-4 text-primary" /> Access Permissions
+                  </label>
+                  <div className="grid grid-cols-4 gap-3">
+                    {roleCards.map(r => (
+                      <button
+                        key={r.key}
+                        disabled={r.forced}
+                        onClick={r.toggle}
+                        className={`p-4 rounded-xl border-2 transition-all text-center ${
+                          r.val
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border bg-secondary/30 text-muted-foreground"
+                        } ${r.forced ? "opacity-60 cursor-default" : "hover:border-primary/50"}`}
+                      >
+                        <p className="text-xs font-bold uppercase">{r.label}</p>
+                        <p className="text-[10px] mt-1 opacity-70">{r.val ? "✓ Allowed" : "Blocked"}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
 
-return (
+                {/* Target departments */}
+                <div className="flex-1">
+                  <label className="text-sm font-semibold text-foreground mb-3 block">
+                    Target Departments
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    {ALL_DEPTS.map(dept => {
+                      const isSelected = targetDepartments.includes(dept);
+                      return (
+                        <button
+                          key={dept}
+                          type="button"
+                          onClick={() => toggleDept(dept)}
+                          className={`px-4 py-2 text-xs font-medium rounded-lg border transition-all ${
+                            isSelected
+                              ? "bg-primary/20 border-primary text-primary"
+                              : "bg-secondary/50 border-border text-muted-foreground hover:border-primary/50"
+                          }`}
+                        >
+                          {dept}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-3">
+                    Employees in the selected departments will be able to see this file.
+                  </p>
+                </div>
 
-<div className="flex min-h-screen bg-background">
+                {/* Upload button — pinned to bottom of right column */}
+                <button
+                  onClick={uploadFile}
+                  disabled={uploading || !file}
+                  className={`w-full py-4 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all ${
+                    uploadSuccess
+                      ? "bg-green-600 text-white"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                  }`}
+                >
+                  {uploading ? (
+                    <><Loader2 className="w-5 h-5 animate-spin" /> Uploading…</>
+                  ) : uploadSuccess ? (
+                    <><ShieldCheck className="w-5 h-5" /> Uploaded! Redirecting…</>
+                  ) : (
+                    <><Upload className="w-5 h-5" /> Upload File</>
+                  )}
+                </button>
+              </div>
 
-  <AppSidebar />
-
-  <main className="flex-1 p-8 text-foreground">
-
-    <h1 className="text-2xl font-bold mb-6">
-      Upload File
-    </h1>
-
-    <div className="glass-card p-6 max-w-xl space-y-6">
-
-      {/* FILE INPUT */}
-      <div>
-
-        <label className="text-sm text-muted-foreground">
-          Select File
-        </label>
-
-        <div className="mt-2 flex items-center gap-3">
-
-          <label className="cursor-pointer bg-secondary border border-border px-4 py-2 rounded-md hover:bg-secondary/80">
-            Choose File
-            <input
-              type="file"
-              className="hidden"
-              onChange={(e) => setFile(e.target.files?.[0] || null)}
-            />
-          </label>
-
-          {file && (
-            <span className="text-sm text-muted-foreground">
-              {file.name}
-            </span>
-          )}
+            </div>
+          </div>
 
         </div>
-
-      </div>
-
-      {/* ACCESS PERMISSIONS */}
-      <div>
-
-        <label className="text-sm text-muted-foreground">
-          Access Permissions
-        </label>
-
-        <div className="flex gap-6 mt-3">
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={allowIntern}
-              disabled={isIntern}
-              onChange={(e) => setAllowIntern(e.target.checked)}
-            />
-            Intern
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={allowStaff}
-              disabled={isIntern || isStaff}
-              onChange={(e) => setAllowStaff(e.target.checked)}
-            />
-            Staff
-          </label>
-
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={allowSenior}
-              disabled={isIntern || isStaff || isSenior}
-              onChange={(e) => setAllowSenior(e.target.checked)}
-            />
-            Senior
-          </label>
-
-        </div>
-
-      </div>
-
-      {/* SENSITIVITY */}
-      <div>
-
-        <label className="text-sm text-muted-foreground">
-          Sensitivity Level
-        </label>
-
-        <select
-          value={sensitivity}
-          disabled={isIntern}
-          className="mt-2 w-full bg-secondary text-foreground p-2 rounded-md border border-border"
-          onChange={(e) => setSensitivity(e.target.value)}
-        >
-
-          <option value="low">Low</option>
-          {(!isIntern) && <option value="high">High</option>}
-          {(!isIntern && !isStaff) && <option value="critical">Critical</option>}
-
-        </select>
-
-      </div>
-
-      {/* TARGET DEPARTMENT */}
-      <div>
-        <label className="text-sm text-muted-foreground block mb-2">
-          Visibility (Target Departments)
-        </label>
-        
-        <div className="flex flex-wrap gap-2">
-          {["All Departments", "IT", "HR", "ACCOUNTS"].map((dept) => {
-            const isSelected = targetDepartments.includes(dept);
-            return (
-              <button
-                key={dept}
-                type="button"
-                onClick={() => {
-                  if (dept === "All Departments") {
-                    setTargetDepartments(["All Departments"]);
-                  } else {
-                    let newDepts = targetDepartments.filter(d => d !== "All Departments");
-                    if (isSelected) {
-                      newDepts = newDepts.filter(d => d !== dept);
-                      if (newDepts.length === 0) newDepts = ["All Departments"];
-                    } else {
-                      newDepts.push(dept);
-                    }
-                    setTargetDepartments(newDepts);
-                  }
-                }}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-all ${
-                  isSelected
-                    ? "bg-primary/20 border-primary text-primary"
-                    : "bg-secondary/50 border-border text-muted-foreground hover:border-sidebar-accent"
-                }`}
-              >
-                {dept}
-              </button>
-            );
-          })}
-        </div>
-
-        <p className="text-[11px] text-muted-foreground mt-2">
-          Who can see this file. Selected: {targetDepartments.join(", ")}
-        </p>
-      </div>
-
-      {/* UPLOAD BUTTON */}
-      <button
-        onClick={uploadFile}
-        className="flex items-center gap-2 bg-primary hover:bg-primary/90 px-4 py-2 rounded-lg text-white"
-      >
-        <Upload size={16} />
-        Upload File
-      </button>
-
+      </main>
     </div>
-
-  </main>
-
-</div>
-
-
-);
+  );
 };
 
 export default EmployeeUpload;

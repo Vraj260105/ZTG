@@ -1,3 +1,4 @@
+const http       = require("http");
 const express    = require("express");
 const cors       = require("cors");
 const helmet     = require("helmet");
@@ -19,6 +20,7 @@ require("./models/WebScan");
 require("./models/BlockedIP");
 const TemporaryAccess = require("./models/TemporaryAccess");
 const MfaChangeRequest = require("./models/MfaChangeRequest");
+const ActiveSession = require("./models/ActiveSession");
 
 // Relationships
 User.hasMany(File, { foreignKey: "uploadedBy" });
@@ -42,6 +44,9 @@ File.hasMany(TemporaryAccess, { foreignKey: "fileId" });
 ActivityLog.belongsTo(User, { foreignKey: "userId" });
 User.hasMany(ActivityLog, { foreignKey: "userId" });
 
+ActiveSession.belongsTo(User, { foreignKey: "userId" });
+User.hasMany(ActiveSession, { foreignKey: "userId" });
+
 // Routes
 const authRoutes = require("./routes/authRoutes");
 const protectedRoutes = require("./routes/protectedRoutes");
@@ -54,6 +59,7 @@ const userRoutes = require("./routes/userRoutes");
 const mfaRoutes = require("./routes/mfaRoutes");
 const dashboardRoutes = require("./routes/dashboardRoutes");
 const webSecurityRoutes = require("./routes/webSecurityRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
 
 // [C1] WAF Middleware — imported once, applied globally before ALL routes
 const wafMiddleware  = require("./modules/webSecurity/wafMiddleware");
@@ -64,6 +70,7 @@ const errorHandler   = require("./middleware/errorHandler");
 // [B1] SSE service for real-time SOC alerts
 const { addClient }  = require("./services/sseService");
 const verifyToken    = require("./middleware/authMiddleware");
+const socketUtil     = require("./utils/socket");
 
 const app = express();
 
@@ -87,43 +94,63 @@ app.use(cors({
 app.use(express.json());
 
 // ── [H4] Rate limiting ────────────────────────────────────────────────────────
-// Global limiter: 100 requests per 15 minutes per IP
+// Helper: safely peek at the JWT role WITHOUT verifying the signature.
+// Used ONLY for rate-limit bucketing — actual auth still happens in verifyToken.
+const _peekRole = (req) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) return null;
+    const payload = JSON.parse(Buffer.from(auth.split(".")[1], "base64").toString());
+    return payload.role || null;
+  } catch { return null; }
+};
+const _isAdmin = (req) => ["admin", "super_admin"].includes(_peekRole(req));
+
+// Standard limiter — 100 req/15 min for regular users and unauthenticated requests
 const globalLimiter = rateLimit({
-  windowMs:       15 * 60 * 1000,
-  max:            100,
+  windowMs:        15 * 60 * 1000,
+  max:             100,
   standardHeaders: true,
-  legacyHeaders:  false,
-  message:        { message: "Too many requests from this IP, please try again after 15 minutes." },
+  legacyHeaders:   false,
+  skip:            (req) => _isAdmin(req), // admins use the limiter below
+  message:         { message: "Too many requests from this IP, please try again after 15 minutes." },
+});
+
+// Admin limiter — 500 req/15 min for admin/super_admin (SOC Dashboard polling)
+// skipSuccessfulRequests: only failed requests count, so normal polls don't eat the budget
+const adminLimiter = rateLimit({
+  windowMs:               15 * 60 * 1000,
+  max:                    500,
+  standardHeaders:        true,
+  legacyHeaders:          false,
+  skipSuccessfulRequests: true,
+  skip:                   (req) => !_isAdmin(req), // non-admins use the limiter above
+  message:                { message: "Too many requests from this IP, please try again after 15 minutes." },
 });
 
 // Auth limiter: 10 requests per 15 minutes per IP (brute-force protection)
-const authLimiter = rateLimit({
-  windowMs:       15 * 60 * 1000,
-  max:            10,
-  standardHeaders: true,
-  legacyHeaders:  false,
-  message:        { message: "Too many login attempts. Please wait 15 minutes before trying again." },
-});
-
+// authLimiter moved directly to authRoutes to prevent blocking /profile
 app.use(globalLimiter);
+app.use(adminLimiter);
 
 // [C1] Apply WAF globally — protects all 11 route groups (was only on 2)
 // [C2] express.static("/uploads") REMOVED — files must be accessed via authenticated
 //      /api/files/view/:id or /api/files/download/:id endpoints only
 app.use(wafMiddleware);
 
-// Routes — auth route gets the stricter limiter but NO riskMiddleware (user not authenticated yet)
-app.use("/api/auth",           authLimiter, authRoutes);
+// Routes 
+app.use("/api/auth",           authRoutes);
 app.use("/api/files",          riskMiddleware, fileRoutes);
 app.use("/api",                riskMiddleware, protectedRoutes);
 app.use("/api/soc",            riskMiddleware, socRoutes);
 app.use("/api/access-requests",riskMiddleware, accessRequestRoutes);
-app.use("/api/security",       securityRoutes);   // WAF scanner — public-ish, no user context
+app.use("/api/security",       riskMiddleware, securityRoutes);
 app.use("/api/activity-logs",  riskMiddleware, activityRoutes);
 app.use("/api/users",          riskMiddleware, userRoutes);
 app.use("/api/mfa",            riskMiddleware, mfaRoutes);
 app.use("/api/dashboard",      riskMiddleware, dashboardRoutes);
 app.use("/api/websecurity",    riskMiddleware, webSecurityRoutes);
+app.use("/api/sessions",       riskMiddleware, sessionRoutes);
 
 // [B1] SSE stream endpoint — real-time SOC alerts (admin only, no riskMiddleware to avoid scoring heartbeats)
 app.get("/api/soc/stream", verifyToken, (req, res) => {
@@ -170,7 +197,12 @@ async function startServer() {
 
     console.log("Database synced successfully");
 
-    app.listen(PORT, () => {
+    const httpServer = http.createServer(app);
+
+    // Initialise Socket.IO AFTER DB sync so model hooks calling getIo() are safe
+    socketUtil.init(httpServer);
+
+    httpServer.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
     });
 

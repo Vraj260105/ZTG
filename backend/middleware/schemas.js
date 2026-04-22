@@ -16,10 +16,11 @@ const DESIGNATION_LEVELS = ["junior", "mid", "senior", "lead", "director"];
 
 exports.registerSchema = z.object({
   name: z
-    .string({ required_error: "Name is required" })
+    .string()
     .trim()
     .min(2, "Name must be at least 2 characters")
-    .max(100, "Name must be at most 100 characters"),
+    .max(100, "Name must be at most 100 characters")
+    .optional(),
 
   email: z
     .string({ required_error: "Email is required" })
@@ -44,9 +45,12 @@ exports.registerSchema = z.object({
     .optional(),
 
   designation_level: z
-    .enum(DESIGNATION_LEVELS, {
-      errorMap: () => ({ message: `Designation level must be one of: ${DESIGNATION_LEVELS.join(", ")}` }),
-    })
+    .number()
+    .int()
+    .optional(),
+    
+  role: z
+    .string()
     .optional(),
 });
 

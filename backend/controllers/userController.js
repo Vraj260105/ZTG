@@ -1,6 +1,8 @@
 const User        = require("../models/User");
 const ActivityLog = require("../models/ActivityLog");
 const Alert       = require("../models/Alert");
+const ActiveSession = require("../models/ActiveSession");
+const blacklist   = require("../services/tokenBlacklist");
 const speakeasy   = require("speakeasy");  // [H1] TOTP verification
 
 // ... we will append delete user
@@ -37,6 +39,13 @@ exports.deleteUser = async (req, res) => {
     if (userToDelete.role === "admin" || userToDelete.role === "super_admin") {
       return res.status(403).json({ message: "Cannot delete admin users." });
     }
+
+    // [H2] Revoke all active JWTs for this user immediately
+    try {
+      const sessions = await ActiveSession.findAll({ where: { userId: id } });
+      sessions.forEach(s => { if (s.jti) blacklist.add(s.jti, s.expiresAt ? Math.floor(new Date(s.expiresAt).getTime() / 1000) : undefined); });
+      await ActiveSession.destroy({ where: { userId: id } });
+    } catch (_) {}
 
     await userToDelete.destroy();
 

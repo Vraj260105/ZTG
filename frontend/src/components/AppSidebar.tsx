@@ -10,7 +10,8 @@ import {
   ChevronRight,
   Upload,
   UserPlus,
-  ShieldCheck
+  ShieldCheck,
+  FileText,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "../api/axios";
@@ -52,18 +53,25 @@ export function AppSidebar() {
     return () => clearInterval(interval);
   }, [role]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("ztg_token");
-    localStorage.removeItem("ztg_role");
-    navigate("/login");
+  const handleLogout = async () => {
+    try {
+      // Tell the backend to destroy the ActiveSession row & blacklist the JWT
+      await api.post("/api/auth/logout");
+    } catch (_) {
+      // Even if the API call fails, clear local state so the user is logged out
+    } finally {
+      localStorage.removeItem("ztg_token");
+      localStorage.removeItem("ztg_role");
+      navigate("/login");
+    }
   };
 
   const navItems =
     role === "admin" || role === "super_admin"
       ? [
-          { title: "SOC Dashboard", path: "/soc", icon: AlertTriangle },
-          { title: "Web Security", path: "/web-security", icon: ShieldCheck },
-          { title: "Activity Logs", path: "/soc", icon: Activity },
+          { title: "SOC Dashboard",   path: "/soc",            icon: AlertTriangle },
+          { title: "Web Security",     path: "/web-security",   icon: ShieldCheck },
+          { title: "Activity Logs",    path: "/activity-logs",  icon: Activity },
           { title: "User Management", path: "/soc/users", icon: Users },
 
           // NEW OPTION
@@ -73,10 +81,11 @@ export function AppSidebar() {
           { title: "MFA Setup", path: "/mfa-setup", icon: Shield },
         ]
       : [
-          { title: "Employee Dashboard", path: "/dashboard", icon: LayoutDashboard },
-          { title: "Upload File", path: "/employee-upload", icon: Upload },
-          ...(role === "staff" || role === "senior" ? [{ title: "Approvals", path: "/approvals", icon: ShieldCheck }] : []),
-          { title: "MFA Setup", path: "/mfa-setup", icon: Shield }
+          { title: "Employee Dashboard", path: "/dashboard",  icon: LayoutDashboard },
+          { title: "Upload File",        path: "/employee-upload", icon: Upload },
+          { title: "My Activity",        path: "/my-activity",    icon: Activity },
+          { title: "My Requests",        path: "/approvals",      icon: FileText },
+          { title: "MFA Setup",          path: "/mfa-setup",      icon: Shield },
         ];
 
   return (
