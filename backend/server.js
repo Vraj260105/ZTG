@@ -93,6 +93,11 @@ app.use(cors({
 
 app.use(express.json());
 
+// ── [P9] Trust proxy — Render (and most cloud hosts) sit behind a reverse proxy
+// that sets X-Forwarded-For. Setting this to 1 tells Express to trust the first
+// hop so express-rate-limit can resolve the real client IP correctly.
+app.set("trust proxy", 1);
+
 // ── [H4] Rate limiting ────────────────────────────────────────────────────────
 // Helper: safely peek at the JWT role WITHOUT verifying the signature.
 // Used ONLY for rate-limit bucketing — actual auth still happens in verifyToken.
