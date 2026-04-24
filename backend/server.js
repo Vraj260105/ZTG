@@ -217,6 +217,9 @@ async function startServer() {
     // [A2] Start the Log Purge worker — deletes ActivityLog rows older than 12 months (daily at 02:00)
     require("./workers/logPurge.worker");
 
+    // [A3] Start the DB Keep-Alive worker — pings Supabase every 2 days to prevent inactivity pause
+    require("./workers/dbKeepAlive.worker");
+
   } catch (error) {
     console.error("Startup error:", error);
   }

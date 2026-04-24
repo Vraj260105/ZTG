@@ -136,8 +136,55 @@
   }
 
   .login-bg {
-    background: radial-gradient(ellipse at 20% 50%, hsl(var(--glow-primary)) 0%, transparent 50%),
-                radial-gradient(ellipse at 80% 20%, hsl(var(--glow-accent)) 0%, transparent 50%),
-                hsl(var(--background));
+    background:
+      radial-gradient(ellipse at 15% 40%, hsl(210 100% 56% / 0.12) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 15%, hsl(190 95% 50% / 0.08) 0%, transparent 50%),
+      radial-gradient(ellipse at 50% 90%, hsl(210 100% 56% / 0.06) 0%, transparent 50%),
+      hsl(var(--background));
+  }
+
+  .login-grid {
+    background-image:
+      linear-gradient(hsl(var(--border)) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px);
+    background-size: 48px 48px;
+  }
+
+  .login-card {
+    background: hsl(222 47% 9% / 0.85);
+    border: 1px solid hsl(222 30% 18%);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    box-shadow:
+      0 0 0 1px hsl(210 100% 56% / 0.06),
+      0 8px 40px hsl(222 47% 3% / 0.8),
+      0 0 60px hsl(210 100% 56% / 0.05);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .login-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, hsl(var(--primary) / 0.6), hsl(var(--accent) / 0.4), transparent);
+  }
+
+  .login-shield-glow {
+    box-shadow:
+      0 0 20px hsl(210 100% 56% / 0.25),
+      0 0 60px hsl(210 100% 56% / 0.1),
+      inset 0 0 20px hsl(210 100% 56% / 0.05);
+  }
+
+  .login-btn-glow {
+    box-shadow: 0 0 20px hsl(210 100% 56% / 0.25);
+  }
+
+  .login-btn-glow:hover:not(:disabled) {
+    box-shadow: 0 0 30px hsl(210 100% 56% / 0.4);
   }
 }
