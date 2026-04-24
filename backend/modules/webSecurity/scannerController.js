@@ -68,22 +68,22 @@ exports.runScan = async (req, res) => {
     let scanMessage = `Initializing Nmap Engine for ${scanType} Audit...`;
 
     if (scanType === "Stealth") {
-        args = ["-sS", "-T4", "-sV", target];
+        args = ["-sT", "-T4", "-sV", target];
     } else if (scanType === "Vuln") {
-        args = ["-T4","--script", "vuln", target];
+        args = ["-sT", "-T4","--script", "vuln", target];
     } else if (scanType === "Full") {
-        args = ["-p-", "-sV", "-A", target]; // -A provides OS + versions without needing strict -O
+        args = ["-sT", "-p-", "-sV", "--script", "default", target]; // Replaced -A as OS detection requires raw sockets
     } else if (scanType === "HEADER_AUDIT") {
-        args = ["-p", "80,443", "--script", "http-security-headers", target];
+        args = ["-sT", "-p", "80,443", "--script", "http-security-headers", target];
         scanMessage = `Scanning Web Headers...`;
     } else if (scanType === "SSL_SCAN" || scanType === "SSL/TLS Scan") {
-        args = ["-p", "443", "-sV", "--script", "ssl-enum-ciphers,ssl-cert", target];
+        args = ["-sT", "-p", "443", "-sV", "--script", "ssl-enum-ciphers,ssl-cert", target];
         scanMessage = `Analyzing SSL Ciphers...`;
     } else if (scanType === "CMS_SCAN") {
-        args = ["-p", "80,443", "-sV", "--script", "http-enum,http-wordpress-enum", target];
+        args = ["-sT", "-p", "80,443", "-sV", "--script", "http-enum,http-wordpress-enum", target];
         scanMessage = `Detecting Content Management Systems...`;
     } else { 
-        args = ["-T4", "-F", target];
+        args = ["-sT", "-T4", "-F", target];
     }
 
     // Manual Path Check for Windows
