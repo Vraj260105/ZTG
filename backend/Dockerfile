@@ -1,5 +1,5 @@
 # Use a Debian-based Node.js image to allow apt-get
-FROM node:20-bullseye
+FROM node:24-bookworm
 
 # Install nmap and required network utilities
 RUN apt-get update && apt-get install -y nmap
