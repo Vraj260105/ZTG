@@ -94,9 +94,9 @@ app.use(cors({
 app.use(express.json());
 
 // ── [P9] Trust proxy — Render (and most cloud hosts) sit behind a reverse proxy
-// that sets X-Forwarded-For. Setting this to true tells Express to trust the entire
-// proxy chain so express-rate-limit and req.ip can resolve the real client IP correctly.
-app.set("trust proxy", true);
+// Setting this to an array of private subnets ensures Express safely resolves the real client IP 
+// without triggering the express-rate-limit permissive trust proxy error.
+app.set("trust proxy", ["loopback", "linklocal", "uniquelocal"]);
 
 // ── [H4] Rate limiting ────────────────────────────────────────────────────────
 // Helper: safely peek at the JWT role WITHOUT verifying the signature.
