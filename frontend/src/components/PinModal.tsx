@@ -27,15 +27,23 @@ export function PinModal({
   const [isResetMode, setIsResetMode] = useState(false);
   const [resetMessage, setResetMessage] = useState("");
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const submitLock = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
       setDigits(Array(6).fill(""));
       setIsResetMode(false);
       setResetMessage("");
+      submitLock.current = false;
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    if (!loading) {
+      submitLock.current = false;
+    }
+  }, [loading]);
 
   if (!isOpen) return null;
 
@@ -66,19 +74,23 @@ export function PinModal({
     if (e.key === "Backspace" && !digits[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
     }
-    if (e.key === "Enter" && token.length === 6 && !loading) {
-      onSubmit(token);
-    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (submitLock.current || loading) return;
+    
     if (isResetMode && onRequestReset) {
       if (!resetMessage.trim()) return;
+      submitLock.current = true;
       onRequestReset(resetMessage);
       return;
     }
-    if (token.length === 6 && !loading) onSubmit(token);
+    
+    if (token.length === 6) {
+      submitLock.current = true;
+      onSubmit(token);
+    }
   };
 
   return (
