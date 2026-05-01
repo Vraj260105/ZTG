@@ -88,6 +88,28 @@ const User = sequelize.define("User", {
   mfaLockUntil: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+
+  // PIN — 4-digit in-app second factor for post-login sensitive actions
+  // TOTP is used only at login; PIN is used for everything else inside the app
+  pinHash: {
+    type: DataTypes.STRING,
+    allowNull: true      // null until user completes /pin-setup
+  },
+
+  pinEnabled: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+
+  pinFailedAttempts: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0
+  },
+
+  pinLockUntil: {
+    type: DataTypes.DATE,
+    allowNull: true
   }
 
 }, {

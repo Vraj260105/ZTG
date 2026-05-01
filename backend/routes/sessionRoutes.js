@@ -2,7 +2,7 @@ const express     = require("express");
 const router      = express.Router();
 const { Op }      = require("sequelize");
 const verifyToken = require("../middleware/authMiddleware");
-const speakeasy   = require("speakeasy");
+const verifyPinHeader = require("../utils/pinGuard");
 
 const ActiveSession = require("../models/ActiveSession");
 const User          = require("../models/User");
@@ -32,32 +32,13 @@ router.get("/", verifyToken, async (req, res) => {
   }
 });
 
-// ─── DELETE /api/sessions/:jti ─────────────────────────────────────────────
+// ─── DELETE /api/sessions/:jti ───────────────────────────────────────────────
 // Force-revoke a session by blacklisting its JWT and deleting the DB row.
-// Requires admin TOTP if admin has MFA enabled (matching existing pattern).
-router.delete("/:jti", verifyToken, async (req, res) => {
+// Requires admin PIN (4-digit) via x-mfa-pin header.
+router.delete("/:jti", verifyToken, verifyPinHeader, async (req, res) => {
   try {
     if (req.user.role !== "admin" && req.user.role !== "super_admin") {
       return res.status(403).json({ message: "Access denied." });
-    }
-
-    const admin = await User.findByPk(req.user.id);
-
-    // TOTP guard (matches pattern in socRoutes.js toggle-block)
-    if (admin && admin.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"];
-      if (!mfaToken) {
-        return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
-      }
-      const isValid = admin.mfaSecret && speakeasy.totp.verify({
-        secret:   admin.mfaSecret,
-        encoding: "base32",
-        token:    mfaToken,
-        window:   1,
-      });
-      if (!isValid) {
-        return res.status(403).json({ mfaRequired: true, message: "Invalid or expired authenticator code." });
-      }
     }
 
     const { jti } = req.params;

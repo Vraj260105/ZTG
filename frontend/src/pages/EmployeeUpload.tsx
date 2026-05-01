@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import { AppSidebar } from "@/components/AppSidebar";
 import UserProfileCard from "@/components/UserProfileCard";
 import { useToast } from "@/hooks/use-toast";
+import { PinModal } from "@/components/PinModal";
+import api from "../api/axios";
 import {
   Upload, FileUp, Lock, ShieldCheck, Loader2, FolderOpen,
 } from "lucide-react";
-import api from "../api/axios";
 
 const ALL_DEPTS = ["All Departments", "IT", "HR", "ACCOUNTS", "MARKETING"];
 
@@ -28,6 +29,9 @@ const EmployeeUpload = () => {
   const [uploading,         setUploading]         = useState(false);
   const [uploadSuccess,     setUploadSuccess]     = useState(false);
   const [dragOver,          setDragOver]          = useState(false);
+  const [pinModalOpen,      setPinModalOpen]      = useState(false);
+  const [pinLoading,        setPinLoading]        = useState(false);
+  const [pinError,          setPinError]          = useState("");
 
   // Pre-fill department from profile
   useEffect(() => {
@@ -81,6 +85,21 @@ const EmployeeUpload = () => {
     } catch (err: any) {
       toast({ title: "Upload Failed", description: err.response?.data?.message || err.response?.data?.error || "Upload failed. Please try again.", variant: "destructive" });
     } finally { setUploading(false); }
+  };
+
+  // PIN confirmed — now actually upload
+  const handlePinConfirm = async (pin: string) => {
+    setPinLoading(true);
+    setPinError("");
+    try {
+      await api.post("/api/pin/verify", { pin });
+      setPinModalOpen(false);
+      await uploadFile();
+    } catch (err: any) {
+      setPinError(err.response?.data?.message || "Incorrect PIN.");
+    } finally {
+      setPinLoading(false);
+    }
   };
 
   // Sensitivity options available by role
@@ -246,9 +265,16 @@ const EmployeeUpload = () => {
                   </p>
                 </div>
 
-                {/* Upload button — pinned to bottom of right column */}
+                {/* Upload button */}
                 <button
-                  onClick={uploadFile}
+                  onClick={() => {
+                    if (!file) {
+                      toast({ title: "No File Selected", description: "Please select a file before uploading.", variant: "destructive" });
+                      return;
+                    }
+                    setPinError("");
+                    setPinModalOpen(true);
+                  }}
                   disabled={uploading || !file}
                   className={`w-full py-4 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all ${
                     uploadSuccess
@@ -271,6 +297,15 @@ const EmployeeUpload = () => {
 
         </div>
       </main>
+      <PinModal
+        isOpen={pinModalOpen}
+        onClose={() => { setPinModalOpen(false); setPinError(""); }}
+        onSubmit={handlePinConfirm}
+        loading={pinLoading}
+        error={pinError}
+        title="Upload Requires PIN"
+        description="Enter your 4-digit security PIN to upload this file."
+      />
     </div>
   );
 };

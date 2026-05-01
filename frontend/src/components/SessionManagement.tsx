@@ -62,7 +62,7 @@ export function SessionManagement({ currentJti }: Props) {
       setPinError("");
     } catch (err: any) {
       const msg = err.response?.data?.message || "Failed to revoke session.";
-      if (err.response?.data?.mfaRequired) {
+      if (err.response?.data?.pinRequired) {
         setPinError(msg);
       } else {
         setKickTarget(null);
@@ -98,7 +98,7 @@ export function SessionManagement({ currentJti }: Props) {
         onSubmit={handleKick}
         error={pinError}
         title="Force-Kick Session"
-        description={`Enter your authenticator code to revoke the session for ${kickTarget?.User?.email || kickTarget?.jti}`}
+        description={`Enter your 4-digit security PIN to revoke the session for ${kickTarget?.User?.email || kickTarget?.jti}`}
       />
 
       <div

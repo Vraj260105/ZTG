@@ -74,6 +74,21 @@ const FileManagement = () => {
   const [editAllowedRoles, setEditAllowedRoles] = useState<string[]>([]);
   const [actionLoading,    setActionLoading]    = useState(false);
 
+  // PIN for upload (admin)
+  const [uploadPinOpen,   setUploadPinOpen]   = useState(false);
+  const [uploadPinError,  setUploadPinError]  = useState("");
+  const [uploadPinLoad,   setUploadPinLoad]   = useState(false);
+
+  // PIN for delete
+  const [deletePinOpen,   setDeletePinOpen]   = useState(false);
+  const [deletePinError,  setDeletePinError]  = useState("");
+  const [deletePinLoad,   setDeletePinLoad]   = useState(false);
+
+  // PIN for permissions edit
+  const [editPinOpen,     setEditPinOpen]     = useState(false);
+  const [editPinError,    setEditPinError]    = useState("");
+  const [editPinLoad,     setEditPinLoad]     = useState(false);
+
   // ── Pagination ────────────────────────────────────────────────────────────
   const PAGE_SIZE = 15;
   const [page, setPage] = useState(1);
@@ -154,7 +169,7 @@ const FileManagement = () => {
         const text = await err.response.data.text();
         try {
           const data = JSON.parse(text);
-          if (data.mfaRequired) { setDownloadPinError(data.message || "Invalid PIN"); return; }
+          if (data.pinRequired) { setDownloadPinError(data.message || "Incorrect PIN"); return; }
           toast({ title: "Download Failed", description: data.message || "Download failed.", variant: "destructive" });
         } catch { toast({ title: "Download Failed", description: "Could not parse server response.", variant: "destructive" }); }
       } else {
@@ -164,6 +179,64 @@ const FileManagement = () => {
     } finally {
       setActionLoading(false);
     }
+  };
+
+  // Upload with PIN gate
+  const handleUploadWithPin = () => {
+    if (!file) { toast({ title: "No File Selected", description: "Please select a file.", variant: "destructive" }); return; }
+    setUploadPinError(""); setUploadPinOpen(true);
+  };
+
+  const handleUploadPinConfirm = async (pin: string) => {
+    setUploadPinLoad(true); setUploadPinError("");
+    try {
+      await api.post("/api/pin/verify", { pin });
+      setUploadPinOpen(false);
+      await uploadFile();
+    } catch (err: any) {
+      setUploadPinError(err.response?.data?.message || "Incorrect PIN.");
+    } finally { setUploadPinLoad(false); }
+  };
+
+  // Delete with PIN gate
+  const handleDeleteWithPin = (f: SocFile) => {
+    setSelectedFile(f); setDeletePinError(""); setDeletePinOpen(true);
+  };
+
+  const handleDeletePinConfirm = async (pin: string) => {
+    if (!selectedFile) return;
+    setDeletePinLoad(true); setDeletePinError("");
+    try {
+      await api.delete(`/api/files/${selectedFile.id}`, { headers: { "x-mfa-pin": pin } });
+      setDeletePinOpen(false); setSelectedFile(null);
+      setFiles(prev => prev.filter(f => f.id !== selectedFile.id));
+      toast({ title: "File Deleted", description: "File permanently removed." });
+    } catch (err: any) {
+      if (err.response?.data?.pinRequired) { setDeletePinError(err.response?.data?.message || "Incorrect PIN."); }
+      else { setDeletePinOpen(false); toast({ title: "Delete Failed", description: err.response?.data?.message || "Failed.", variant: "destructive" }); }
+    } finally { setDeletePinLoad(false); }
+  };
+
+  // Edit permissions with PIN gate
+  const handleEditWithPin = (f: SocFile) => {
+    openEditModal(f); setEditPinError("");
+  };
+
+  const handleEditPinConfirm = async (pin: string) => {
+    if (!selectedFile) return;
+    setEditPinLoad(true); setEditPinError("");
+    try {
+      await api.patch(`/api/files/${selectedFile.id}/permissions`,
+        { targetDepartments: editTargetDepts, allowedRoles: editAllowedRoles },
+        { headers: { "x-mfa-pin": pin } }
+      );
+      setEditPinOpen(false); setEditModalOpen(false); setSelectedFile(null);
+      fetchFiles(true);
+      toast({ title: "Permissions Updated" });
+    } catch (err: any) {
+      if (err.response?.data?.pinRequired) { setEditPinError(err.response?.data?.message || "Incorrect PIN."); }
+      else { setEditPinOpen(false); toast({ title: "Update Failed", description: err.response?.data?.message || "Failed.", variant: "destructive" }); }
+    } finally { setEditPinLoad(false); }
   };
 
   const confirmDeleteFile = async () => {
@@ -224,7 +297,34 @@ const FileManagement = () => {
         loading={actionLoading}
         error={downloadPinError}
         title="Download Secured File"
-        description={`Enter your 6-digit authenticator code to download "${fileToDownload?.filename}"`}
+        description={`Enter your 4-digit security PIN to download "${fileToDownload?.filename}"`}
+      />
+      <PinModal
+        isOpen={uploadPinOpen}
+        onClose={() => { setUploadPinOpen(false); setUploadPinError(""); }}
+        onSubmit={handleUploadPinConfirm}
+        loading={uploadPinLoad}
+        error={uploadPinError}
+        title="Upload Requires PIN"
+        description="Enter your 4-digit security PIN to upload this file."
+      />
+      <PinModal
+        isOpen={deletePinOpen}
+        onClose={() => { setDeletePinOpen(false); setDeletePinError(""); }}
+        onSubmit={handleDeletePinConfirm}
+        loading={deletePinLoad}
+        error={deletePinError}
+        title="Confirm Deletion"
+        description={`Enter your 4-digit PIN to permanently delete "${selectedFile?.originalName || selectedFile?.filename}"`}
+      />
+      <PinModal
+        isOpen={editPinOpen}
+        onClose={() => { setEditPinOpen(false); setEditPinError(""); }}
+        onSubmit={handleEditPinConfirm}
+        loading={editPinLoad}
+        error={editPinError}
+        title="Update Permissions"
+        description="Enter your 4-digit security PIN to save permission changes."
       />
 
       {/* Delete confirmation */}
@@ -496,8 +596,8 @@ const FileManagement = () => {
                     </p>
                   </div>
 
-                  {/* Upload button — pinned to bottom of right column */}
-                  <button onClick={uploadFile} disabled={uploading || !file}
+                  {/* Upload button — requires PIN */}
+                  <button onClick={handleUploadWithPin} disabled={uploading || !file}
                     className={`w-full py-4 rounded-xl font-semibold text-base flex items-center justify-center gap-2 transition-all ${
                       uploadSuccess
                         ? "bg-green-600 text-white"
@@ -620,11 +720,11 @@ const FileManagement = () => {
                                     className="p-1.5 bg-secondary text-foreground hover:bg-primary/20 hover:text-primary rounded-lg transition-colors border border-border" title="Download">
                                     <Download className="w-4 h-4" />
                                   </button>
-                                  <button onClick={() => openEditModal(file)}
+                                  <button onClick={() => { handleEditWithPin(file); setEditPinOpen(true); }}
                                     className="p-1.5 bg-secondary text-foreground hover:bg-primary/20 hover:text-primary rounded-lg transition-colors border border-border" title="Edit Permissions">
                                     <Pencil className="w-4 h-4" />
                                   </button>
-                                  <button onClick={() => { setSelectedFile(file); setDeleteModalOpen(true); }}
+                                  <button onClick={() => { setSelectedFile(file); setDeletePinOpen(true); setDeletePinError(""); }}
                                     className="p-1.5 bg-destructive/10 text-destructive hover:bg-destructive/20 rounded-lg transition-colors border border-destructive/20" title="Delete">
                                     <Trash2 className="w-4 h-4" />
                                   </button>

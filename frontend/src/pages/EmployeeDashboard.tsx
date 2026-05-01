@@ -151,7 +151,7 @@ const EmployeeDashboard = () => {
           toast({ title: "⛔ Access Blocked", description: `Risk score too high (${data.riskScore}/100).`, variant: "destructive", duration: 7000 });
           setPinModalOpen(false); return;
         }
-        if (data.mfaRequired) { setPinError(data.message || "Invalid code"); return; }
+        if (data.pinRequired) { setPinError(data.message || "Incorrect PIN"); return; }
         toast({ title: `${action} Failed`, description: data.message || "Unexpected error.", variant: "destructive" });
       } catch { toast({ title: `${action} Failed`, description: "Unexpected error.", variant: "destructive" }); }
     } else {
@@ -199,7 +199,7 @@ const EmployeeDashboard = () => {
         loading={pinLoading}
         error={pinError}
         title={fileToProcess?.action === "view" ? "View Secured File" : "Download Secured File"}
-        description={`Enter your 6-digit authenticator code to ${fileToProcess?.action} ${fileToProcess?.originalName || fileToProcess?.filename}`}
+        description={`Enter your 4-digit security PIN to ${fileToProcess?.action} ${fileToProcess?.originalName || fileToProcess?.filename}`}
       />
       <SecureFileViewer url={viewerUrl} filename={viewerFilename} onClose={closeViewer} />
 
