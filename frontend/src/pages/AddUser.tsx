@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { AppSidebar } from "@/components/AppSidebar";
 import UserProfileCard from "@/components/UserProfileCard";
-import { ChevronDown, Loader2, ShieldCheck, UserPlus, Mail, Lock, Building2, Briefcase } from "lucide-react"; 
+import { ChevronDown, Loader2, ShieldCheck, UserPlus, Mail, Lock, Building2, Briefcase, User } from "lucide-react"; 
 import { useToast } from "@/hooks/use-toast";
 import api from "../api/axios";
 
 const AddUser = () => {
   const { toast } = useToast();
+  const [name,        setName]        = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState(""); 
@@ -62,7 +63,7 @@ const AddUser = () => {
   };
 
   const createUser = async () => {
-    if (!email || !password || !role || !department || !designation || level === "") {
+    if (!name.trim() || !email || !password || !role || !department || !designation || level === "") {
       toast({ title: "Incomplete Form", description: "Please fill in all fields before creating a user.", variant: "destructive" });
       return;
     }
@@ -70,12 +71,12 @@ const AddUser = () => {
     setLoading(true);
     try {
       const res = await api.post("/api/auth/register", {
-        email, password, role, department, designation, designation_level: level
+        name: name.trim(), email, password, role, department, designation, designation_level: level
       });
 
       if (res.status === 200 || res.status === 201) {
-        toast({ title: "User Created", description: `${designation} (Level ${level}) has been registered successfully.` });
-        setEmail(""); setPassword(""); setRole(""); setDepartment(""); setDesignation(""); setLevel("");
+        toast({ title: "User Created", description: `${name} (${designation}, Level ${level}) has been registered successfully.` });
+        setName(""); setEmail(""); setPassword(""); setRole(""); setDepartment(""); setDesignation(""); setLevel("");
       }
     } catch (error: any) {
       toast({ title: "Server Error", description: error?.response?.data?.message || "Could not create user. Please try again.", variant: "destructive" });
@@ -105,6 +106,20 @@ const AddUser = () => {
           <div className="glass-card p-8 rounded-xl border border-border space-y-6">
             
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Full Name */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Full Name</label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                  <input
+                    className="w-full pl-10 pr-4 py-2.5 bg-secondary/50 border border-border rounded-lg outline-none focus:border-primary text-sm transition-colors placeholder:text-muted-foreground"
+                    placeholder="e.g. John Smith"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Email Address</label>
                 <div className="relative">
@@ -201,7 +216,7 @@ const AddUser = () => {
             <div className="pt-4 border-t border-border mt-6">
               <button 
                 onClick={createUser} 
-                disabled={loading || !email || !password || !role || !department} 
+                disabled={loading || !name.trim() || !email || !password || !role || !department} 
                 className="w-full sm:w-auto px-8 py-2.5 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 disabled:opacity-50 transition-all flex items-center justify-center gap-2 ml-auto"
               >
                 {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
