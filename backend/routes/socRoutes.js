@@ -3,7 +3,7 @@ const router        = express.Router();
 
 const verifyToken   = require("../middleware/authMiddleware");
 const requireRole   = require("../middleware/roleMiddleware");
-const speakeasy     = require("speakeasy");
+const verifyPinHeader = require("../utils/pinGuard");
 const blacklist     = require("../services/tokenBlacklist");
 const { sendAccountSuspended } = require("../services/emailService");
 
@@ -35,21 +35,11 @@ router.get("/users", verifyToken, requireRole("admin"), async (req, res) => {
 });
 
 // ── Toggle Block / Unblock ───────────────────────────────────────────────────
-router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), async (req, res) => {
+router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // [H1] TOTP MFA check for admin actions
-    const adminUser = await User.findByPk(req.user.id);
-    if (adminUser && adminUser.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"];
-      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required for admin actions." });
-      const isValid = adminUser.mfaSecret && speakeasy.totp.verify({
-        secret: adminUser.mfaSecret, encoding: "base32", token: mfaToken, window: 1
-      });
-      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired authenticator code." });
-    }
 
     if (user.id === req.user.id) return res.status(400).json({ message: "You cannot block yourself" });
 
@@ -114,7 +104,7 @@ router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), async (
 });
 
 // ── Temporary Lockout (time-limited) ────────────────────────────────────────
-router.post("/users/:id/lockout", verifyToken, requireRole("admin"), async (req, res) => {
+router.post("/users/:id/lockout", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const { duration } = req.body;
     const DURATIONS = {
@@ -126,16 +116,6 @@ router.post("/users/:id/lockout", verifyToken, requireRole("admin"), async (req,
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found." });
     if (user.id === req.user.id) return res.status(400).json({ message: "You cannot lock yourself out." });
-
-    const adminUser = await User.findByPk(req.user.id);
-    if (adminUser && adminUser.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"];
-      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
-      const isValid = adminUser.mfaSecret && speakeasy.totp.verify({
-        secret: adminUser.mfaSecret, encoding: "base32", token: mfaToken, window: 1
-      });
-      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired code." });
-    }
 
     const until = new Date(Date.now() + DURATIONS[duration]);
     user.blocked_until = until;
@@ -157,20 +137,11 @@ router.post("/users/:id/lockout", verifyToken, requireRole("admin"), async (req,
 });
 
 // ── Remove lockout only ──────────────────────────────────────────────────────
-router.post("/users/:id/unlock-lockout", verifyToken, requireRole("admin"), async (req, res) => {
+router.post("/users/:id/unlock-lockout", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found." });
 
-    const adminUser = await User.findByPk(req.user.id);
-    if (adminUser && adminUser.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"];
-      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
-      const isValid = adminUser.mfaSecret && speakeasy.totp.verify({
-        secret: adminUser.mfaSecret, encoding: "base32", token: mfaToken, window: 1
-      });
-      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired code." });
-    }
 
     user.blocked_until = null;
     if (user.block_reason === "LOCKOUT") user.block_reason = null;

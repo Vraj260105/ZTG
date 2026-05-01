@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 
 const authMiddleware = require("../middleware/authMiddleware");
+const verifyPinHeader = require("../utils/pinGuard");
 const upload = require("../middleware/uploadMiddleware");
 const { validate } = require("../middleware/validate");
 const { uploadFileSchema, accessRequestSchema } = require("../middleware/schemas");
@@ -54,17 +55,19 @@ router.post(
   fileController.requestAccess
 );
 
-// Delete file (Admin)
+// Delete file (Admin) — requires admin PIN
 router.delete(
   "/:id",
   authMiddleware,
+  verifyPinHeader,
   fileController.deleteFile
 );
 
-// Update permissions (Admin)
+// Update permissions (Admin) — requires admin PIN
 router.patch(
   "/:id/permissions",
   authMiddleware,
+  verifyPinHeader,
   fileController.updateFilePermissions
 );
 

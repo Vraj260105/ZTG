@@ -126,3 +126,22 @@ exports.rejectRequestSchema = z.object({
     .min(5, "Reason must be at least 5 characters")
     .max(500, "Reason must be at most 500 characters"),
 });
+
+// ── PIN ────────────────────────────────────────────────────────────────────────────────
+
+// First-time PIN setup
+exports.pinSetupSchema = z.object({
+  pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits"),
+});
+
+// In-app PIN challenge (verify)
+exports.pinVerifySchema = z.object({
+  pin: z.string().regex(/^\d{4}$/, "PIN must be exactly 4 digits"),
+});
+
+// PIN reset — requires current TOTP (6-digit) to verify identity, then sets a new 4-digit PIN
+exports.pinResetSchema = z.object({
+  totpToken: z.string().regex(/^\d{6}$/, "Authenticator code must be 6 digits"),
+  newPin:    z.string().regex(/^\d{4}$/, "New PIN must be exactly 4 digits"),
+});
+

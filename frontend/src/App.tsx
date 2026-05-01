@@ -16,6 +16,8 @@ import ApprovalsDashboard from "./pages/ApprovalsDashboard";
 import MFASetup from "./pages/MFASetup";
 import WebSecurity from "./pages/WebSecurity";
 import MyActivity from "./pages/MyActivity";
+import PinSetup from "./pages/PinSetup";
+import PinReset from "./pages/PinReset";
 
 const queryClient = new QueryClient();
 
@@ -170,6 +172,26 @@ const App = () => (
               <MfaRoute>
                 <MFASetup />
               </MfaRoute>
+            }
+          />
+
+          {/* PIN Setup — forced on first login after TOTP */}
+          <Route
+            path="/pin-setup"
+            element={
+              <ProtectedRoute allowedRoles={["intern", "staff", "senior", "admin", "super_admin"]}>
+                <PinSetup />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* PIN Reset — self-service via TOTP verification */}
+          <Route
+            path="/pin-reset"
+            element={
+              <ProtectedRoute allowedRoles={["intern", "staff", "senior", "admin", "super_admin"]}>
+                <PinReset />
+              </ProtectedRoute>
             }
           />
 

@@ -12,6 +12,7 @@ import {
   UserPlus,
   ShieldCheck,
   FileText,
+  KeyRound,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import api from "../api/axios";
@@ -80,6 +81,7 @@ export function AppSidebar() {
           { title: "File Management", path: "/files", icon: Upload },
           { title: "Approvals", path: "/approvals", icon: ShieldCheck, badge: pendingCount },
           { title: "MFA Setup", path: "/mfa-setup", icon: Shield },
+          { title: "Reset PIN", path: "/pin-reset", icon: KeyRound },
         ]
       : [
           { title: "Employee Dashboard", path: "/dashboard",  icon: LayoutDashboard },
@@ -87,6 +89,7 @@ export function AppSidebar() {
           { title: "My Activity",        path: "/my-activity",    icon: Activity },
           { title: "My Requests",        path: "/approvals",      icon: FileText },
           { title: "MFA Setup",          path: "/mfa-setup",      icon: Shield },
+          { title: "Reset PIN",          path: "/pin-reset",      icon: KeyRound },
         ];
 
   return (

@@ -108,7 +108,9 @@ export default function MFASetup() {
 
       setStep("done");
       setTimeout(() => {
-        if (res.data.role === "admin" || res.data.role === "super_admin") {
+        if (res.data.pinSetupRequired) {
+          navigate("/pin-setup");
+        } else if (res.data.role === "admin" || res.data.role === "super_admin") {
           navigate("/soc");
         } else {
           navigate("/dashboard");

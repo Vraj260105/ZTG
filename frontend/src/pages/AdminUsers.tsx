@@ -140,8 +140,8 @@ export default function AdminUsers() {
       setLockoutModalUser(null);
       fetchAll(true);
     } catch (err: any) {
-      if (err.response?.data?.mfaRequired) {
-        setAdminPinError(err.response?.data?.message || "Invalid PIN");
+      if (err.response?.data?.pinRequired) {
+        setAdminPinError(err.response?.data?.message || "Incorrect PIN");
       } else {
         setPinModalOpen(false);
         setPendingAction(null);
@@ -177,7 +177,7 @@ export default function AdminUsers() {
         onSubmit={processAdminAction}
         error={adminPinError}
         title="Admin Action Required"
-        description="Enter your 6-digit authenticator code to proceed."
+        description="Enter your 4-digit security PIN to proceed."
       />
 
       {/* ── Lockout duration picker modal ────────────────────────────────── */}

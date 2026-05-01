@@ -171,7 +171,8 @@ exports.verifyTotp = async (req, res) => {
       return res.status(200).json({ 
         message: "MFA activated successfully. Your account is now protected.",
         token: fullToken,
-        role: user.role
+        role: user.role,
+        pinSetupRequired: !user.pinEnabled
       });
     }
 
@@ -205,7 +206,8 @@ exports.verifyTotp = async (req, res) => {
       return res.status(200).json({
         message: "Verification successful",
         token:   fullToken,
-        role:    user.role
+        role:    user.role,
+        pinSetupRequired: !user.pinEnabled
       });
     }
 

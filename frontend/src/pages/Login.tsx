@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Shield, Loader2, Mail, Lock, AlertCircle, Eye, EyeOff, Activity } from "lucide-react";
 import { authApi } from "@/lib/api";
 import api from "../api/axios";
-import { PinModal } from "@/components/PinModal";
+import { TotpModal } from "@/components/TotpModal";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -56,9 +56,9 @@ const Login = () => {
         headers: { Authorization: `Bearer ${tempToken}` }
       });
       setShowMfaModal(false);
-      completeLogin(res.data.token, res.data.role);
+      completeLogin(res.data.token, res.data.role, res.data.pinSetupRequired);
     } catch (err: any) {
-      setMfaError(err.response?.data?.message || "Invalid PIN");
+      setMfaError(err.response?.data?.message || "Invalid code");
     } finally {
       setMfaLoading(false);
     }
@@ -82,11 +82,13 @@ const Login = () => {
     }
   };
 
-  const completeLogin = (token: string, role: string) => {
+  const completeLogin = (token: string, role: string, pinSetupRequired?: boolean) => {
     localStorage.setItem("ztg_token", token);
     localStorage.setItem("ztg_role", role);
 
-    if (role === "admin" || role === "super_admin") {
+    if (pinSetupRequired) {
+      navigate("/pin-setup");
+    } else if (role === "admin" || role === "super_admin") {
       navigate("/soc");
     } else {
       navigate("/dashboard");
@@ -102,7 +104,7 @@ const Login = () => {
       <div className="absolute top-1/4 -left-24 w-72 h-72 rounded-full bg-primary/10 blur-[80px] animate-pulse pointer-events-none" />
       <div className="absolute bottom-1/4 -right-24 w-72 h-72 rounded-full bg-accent/10 blur-[80px] animate-pulse pointer-events-none" style={{ animationDelay: "1.5s" }} />
 
-      <PinModal
+      <TotpModal
         isOpen={showMfaModal}
         onClose={() => setShowMfaModal(false)}
         onSubmit={handleMfaSubmit}
