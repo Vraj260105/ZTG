@@ -158,18 +158,18 @@ app.use(wafMiddleware);
 
 // Routes 
 app.use("/api/auth",           authRoutes);
-app.use("/api/files",          riskMiddleware, fileRoutes);
-app.use("/api",                riskMiddleware, protectedRoutes);
-app.use("/api/soc",            riskMiddleware, socRoutes);
-app.use("/api/access-requests",riskMiddleware, accessRequestRoutes);
-app.use("/api/security",       riskMiddleware, securityRoutes);
-app.use("/api/activity-logs",  riskMiddleware, activityRoutes);
-app.use("/api/users",          riskMiddleware, userRoutes);
-app.use("/api/mfa",            riskMiddleware, mfaRoutes);
-app.use("/api/pin",            riskMiddleware, pinRoutes);
-app.use("/api/dashboard",      riskMiddleware, dashboardRoutes);
-app.use("/api/websecurity",    riskMiddleware, webSecurityRoutes);
-app.use("/api/sessions",       riskMiddleware, sessionRoutes);
+app.use("/api/files",          verifyToken, riskMiddleware, fileRoutes);
+app.use("/api",                verifyToken, riskMiddleware, protectedRoutes);
+app.use("/api/soc",            verifyToken, riskMiddleware, socRoutes);
+app.use("/api/access-requests",verifyToken, riskMiddleware, accessRequestRoutes);
+app.use("/api/security",       verifyToken, riskMiddleware, securityRoutes);
+app.use("/api/activity-logs",  verifyToken, riskMiddleware, activityRoutes);
+app.use("/api/users",          verifyToken, riskMiddleware, userRoutes);
+app.use("/api/mfa",            verifyToken, riskMiddleware, mfaRoutes);
+app.use("/api/pin",            verifyToken, riskMiddleware, pinRoutes);
+app.use("/api/dashboard",      verifyToken, riskMiddleware, dashboardRoutes);
+app.use("/api/websecurity",    verifyToken, riskMiddleware, webSecurityRoutes);
+app.use("/api/sessions",       verifyToken, riskMiddleware, sessionRoutes);
 
 // [B1] SSE stream endpoint — real-time SOC alerts (admin only, no riskMiddleware to avoid scoring heartbeats)
 app.get("/api/soc/stream", verifyToken, (req, res) => {

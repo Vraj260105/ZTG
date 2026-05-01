@@ -2,7 +2,7 @@ const express       = require("express");
 const router        = express.Router();
 
 const verifyToken   = require("../middleware/authMiddleware");
-const requireRole   = require("../middleware/roleMiddleware");
+const { requireMinRole } = require("../middleware/roleMiddleware");
 const verifyPinHeader = require("../utils/pinGuard");
 const blacklist     = require("../services/tokenBlacklist");
 const { sendAccountSuspended } = require("../services/emailService");
@@ -15,18 +15,18 @@ const { Op }        = require("sequelize");
 
 // ── Legacy routes with safety caps ──────────────────────────────────────────
 // Older endpoints kept for backwards compat; /api/activity-logs is preferred.
-router.get("/alerts", verifyToken, requireRole("admin"), async (req, res) => {
+router.get("/alerts", verifyToken, requireMinRole("admin"), async (req, res) => {
   const alerts = await Alert.findAll({ order: [["createdAt", "DESC"]], limit: 500 });
   res.json(alerts);
 });
 
-router.get("/logs", verifyToken, requireRole("admin"), async (req, res) => {
+router.get("/logs", verifyToken, requireMinRole("admin"), async (req, res) => {
   const logs = await ActivityLog.findAll({ order: [["createdAt", "DESC"]], limit: 500 });
   res.json(logs);
 });
 
 // ── Get All Users (Admin) ────────────────────────────────────────────────────
-router.get("/users", verifyToken, requireRole("admin"), async (req, res) => {
+router.get("/users", verifyToken, requireMinRole("admin"), async (req, res) => {
   const users = await User.findAll({
     attributes: { exclude: ["password"] },
     order: [["createdAt", "DESC"]],
@@ -35,7 +35,7 @@ router.get("/users", verifyToken, requireRole("admin"), async (req, res) => {
 });
 
 // ── Toggle Block / Unblock ───────────────────────────────────────────────────
-router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
+router.put("/users/:id/toggle-block", verifyToken, requireMinRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -104,7 +104,7 @@ router.put("/users/:id/toggle-block", verifyToken, requireRole("admin"), verifyP
 });
 
 // ── Temporary Lockout (time-limited) ────────────────────────────────────────
-router.post("/users/:id/lockout", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
+router.post("/users/:id/lockout", verifyToken, requireMinRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const { duration } = req.body;
     const DURATIONS = {
@@ -137,7 +137,7 @@ router.post("/users/:id/lockout", verifyToken, requireRole("admin"), verifyPinHe
 });
 
 // ── Remove lockout only ──────────────────────────────────────────────────────
-router.post("/users/:id/unlock-lockout", verifyToken, requireRole("admin"), verifyPinHeader, async (req, res) => {
+router.post("/users/:id/unlock-lockout", verifyToken, requireMinRole("admin"), verifyPinHeader, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found." });
