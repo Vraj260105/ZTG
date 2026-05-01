@@ -40,7 +40,7 @@ export function TotpModal({
       setIsResetMode(false);
       setResetMessage("");
       submitLock.current = false;
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+      requestAnimationFrame(() => inputRefs.current[0]?.focus());
     }
   }, [isOpen]);
 

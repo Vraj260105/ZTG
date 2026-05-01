@@ -36,7 +36,8 @@ export function PinModal({
     if (isOpen) {
       setDigits(Array(4).fill(""));
       submitLock.current = false;
-      setTimeout(() => inputRefs.current[0]?.focus(), 100);
+      // defer to next frame so the modal has rendered
+      requestAnimationFrame(() => inputRefs.current[0]?.focus());
     }
   }, [isOpen]);
 
