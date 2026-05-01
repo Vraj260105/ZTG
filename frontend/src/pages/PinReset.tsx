@@ -1,9 +1,38 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../api/axios";
 import { AppSidebar } from "@/components/AppSidebar";
 import UserProfileCard from "@/components/UserProfileCard";
 import { Loader2, Lock, ShieldCheck, Smartphone, CheckCircle2, KeyRound, AlertCircle } from "lucide-react";
+
+// ── Slot defined outside to prevent remount on each re-render ──────────────────
+interface SlotProps {
+  index: number;
+  value: string;
+  size?: "sm" | "lg";
+  inputRef: (el: HTMLInputElement | null) => void;
+  onChange: (index: number, value: string) => void;
+  onKeyDown: (index: number, e: React.KeyboardEvent) => void;
+}
+
+function Slot({ index, value, size = "lg", inputRef, onChange, onKeyDown }: SlotProps) {
+  const dim = size === "sm" ? "w-10 h-12 text-xl" : "w-14 h-14 text-2xl";
+  return (
+    <input
+      ref={inputRef}
+      type="text"
+      inputMode="numeric"
+      maxLength={size === "sm" ? 6 : 4}
+      value={value}
+      onChange={(e) => onChange(index, e.target.value)}
+      onKeyDown={(e) => onKeyDown(index, e)}
+      className={`${dim} text-center font-mono font-bold rounded-xl border-2 bg-secondary text-foreground
+        focus:outline-none transition-all
+        ${value ? "border-primary bg-primary/10" : "border-border"}
+        focus:border-primary focus:ring-2 focus:ring-primary/20`}
+    />
+  );
+}
 
 export default function PinReset() {
   const navigate = useNavigate();
@@ -13,18 +42,31 @@ export default function PinReset() {
   const totpRefs = useRef<(HTMLInputElement | null)[]>([]);
   const totpValue = totpDigits.join("");
 
-  const [pin, setPin] = useState<string[]>(Array(4).fill(""));
+  const [pin,     setPin]     = useState<string[]>(Array(4).fill(""));
   const [confirm, setConfirm] = useState<string[]>(Array(4).fill(""));
-  const pinRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const pinRefs     = useRef<(HTMLInputElement | null)[]>([]);
   const confirmRefs = useRef<(HTMLInputElement | null)[]>([]);
-  const pinValue = pin.join("");
+  const pinValue     = pin.join("");
   const confirmValue = confirm.join("");
 
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
+  const [error,   setError]   = useState<string | null>(null);
+  const [done,    setDone]    = useState(false);
 
-  const handleDigit = (index: number, value: string, max: number, arr: string[], setArr: any, refs: any, nextRefs?: any) => {
+  // Focus first TOTP slot once on mount only
+  useEffect(() => {
+    totpRefs.current[0]?.focus();
+  }, []);
+
+  const handleDigit = (
+    index: number,
+    value: string,
+    max: number,
+    arr: string[],
+    setArr: React.Dispatch<React.SetStateAction<string[]>>,
+    refs: React.MutableRefObject<(HTMLInputElement | null)[]>,
+    nextRefs?: React.MutableRefObject<(HTMLInputElement | null)[]>
+  ) => {
     if (!/^\d*$/.test(value)) return;
     const updated = [...arr];
     if (value.length > 1) {
@@ -40,14 +82,19 @@ export default function PinReset() {
     if (value && index === max - 1 && nextRefs) nextRefs.current[0]?.focus();
   };
 
-  const handleKeyDown = (index: number, e: React.KeyboardEvent, arr: string[], refs: any) => {
+  const handleKeyDown = (
+    index: number,
+    e: React.KeyboardEvent,
+    arr: string[],
+    refs: React.MutableRefObject<(HTMLInputElement | null)[]>
+  ) => {
     if (e.key === "Backspace" && !arr[index] && index > 0) refs.current[index - 1]?.focus();
   };
 
   const handleSubmit = async () => {
     setError(null);
     if (totpValue.length !== 6) { setError("Enter your 6-digit authenticator code."); return; }
-    if (pinValue.length !== 4) { setError("Enter a 4-digit new PIN."); return; }
+    if (pinValue.length !== 4)  { setError("Enter a 4-digit new PIN."); return; }
     if (pinValue !== confirmValue) {
       setError("PINs do not match.");
       setConfirm(Array(4).fill(""));
@@ -66,17 +113,16 @@ export default function PinReset() {
     }
   };
 
-  const slotClass = (val: string, w = "w-10 h-12 text-xl") =>
-    `${w} text-center font-mono font-bold rounded-xl border-2 bg-secondary text-foreground focus:outline-none transition-all ${val ? "border-primary bg-primary/10" : "border-border"} focus:border-primary focus:ring-2 focus:ring-primary/20`;
-
   return (
     <div className="flex min-h-screen bg-background">
       <AppSidebar />
       <main className="flex-1 p-8 relative flex items-center justify-center">
         <div className="absolute top-6 right-8 z-50"><UserProfileCard /></div>
+
         <div className="glass-card max-w-lg w-full p-8 border border-border rounded-xl shadow-lg relative overflow-hidden">
           <div className="absolute top-0 right-0 w-32 h-32 bg-primary/10 blur-[50px] rounded-full pointer-events-none" />
 
+          {/* Header */}
           <div className="flex flex-col items-center text-center space-y-4 mb-8">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center border border-primary/20">
               {done ? <CheckCircle2 className="w-8 h-8 text-green-500" /> : <KeyRound className="w-8 h-8 text-primary" />}
@@ -103,11 +149,15 @@ export default function PinReset() {
                 <p className="text-xs text-muted-foreground mb-4">6-digit code from Google Authenticator or Authy.</p>
                 <div className="flex justify-center gap-2">
                   {[0,1,2,3,4,5].map((i) => (
-                    <input key={i} ref={(el) => { totpRefs.current[i] = el; }} type="text" inputMode="numeric"
-                      maxLength={6} value={totpDigits[i]} autoFocus={i === 0}
-                      onChange={(e) => handleDigit(i, e.target.value, 6, totpDigits, setTotpDigits, totpRefs, pinRefs)}
-                      onKeyDown={(e) => handleKeyDown(i, e, totpDigits, totpRefs)}
-                      className={slotClass(totpDigits[i])} />
+                    <Slot
+                      key={i}
+                      index={i}
+                      value={totpDigits[i]}
+                      size="sm"
+                      inputRef={(el) => { totpRefs.current[i] = el; }}
+                      onChange={(idx, val) => handleDigit(idx, val, 6, totpDigits, setTotpDigits, totpRefs, pinRefs)}
+                      onKeyDown={(idx, e) => handleKeyDown(idx, e, totpDigits, totpRefs)}
+                    />
                   ))}
                 </div>
               </div>
@@ -121,11 +171,14 @@ export default function PinReset() {
                   <p className="text-xs text-muted-foreground mb-2">New PIN</p>
                   <div className="flex justify-center gap-3">
                     {[0,1,2,3].map((i) => (
-                      <input key={i} ref={(el) => { pinRefs.current[i] = el; }} type="text" inputMode="numeric"
-                        maxLength={4} value={pin[i]}
-                        onChange={(e) => handleDigit(i, e.target.value, 4, pin, setPin, pinRefs, confirmRefs)}
-                        onKeyDown={(e) => handleKeyDown(i, e, pin, pinRefs)}
-                        className={slotClass(pin[i], "w-14 h-14 text-2xl")} />
+                      <Slot
+                        key={i}
+                        index={i}
+                        value={pin[i]}
+                        inputRef={(el) => { pinRefs.current[i] = el; }}
+                        onChange={(idx, val) => handleDigit(idx, val, 4, pin, setPin, pinRefs, confirmRefs)}
+                        onKeyDown={(idx, e) => handleKeyDown(idx, e, pin, pinRefs)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -133,11 +186,14 @@ export default function PinReset() {
                   <p className="text-xs text-muted-foreground mb-2">Confirm PIN</p>
                   <div className="flex justify-center gap-3">
                     {[0,1,2,3].map((i) => (
-                      <input key={i} ref={(el) => { confirmRefs.current[i] = el; }} type="text" inputMode="numeric"
-                        maxLength={4} value={confirm[i]}
-                        onChange={(e) => handleDigit(i, e.target.value, 4, confirm, setConfirm, confirmRefs)}
-                        onKeyDown={(e) => handleKeyDown(i, e, confirm, confirmRefs)}
-                        className={slotClass(confirm[i], "w-14 h-14 text-2xl")} />
+                      <Slot
+                        key={i}
+                        index={i}
+                        value={confirm[i]}
+                        inputRef={(el) => { confirmRefs.current[i] = el; }}
+                        onChange={(idx, val) => handleDigit(idx, val, 4, confirm, setConfirm, confirmRefs)}
+                        onKeyDown={(idx, e) => handleKeyDown(idx, e, confirm, confirmRefs)}
+                      />
                     ))}
                   </div>
                 </div>
@@ -149,9 +205,11 @@ export default function PinReset() {
                 </div>
               )}
 
-              <button onClick={handleSubmit}
+              <button
+                onClick={handleSubmit}
                 disabled={totpValue.length !== 6 || pinValue.length !== 4 || confirmValue.length !== 4 || loading}
-                className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2">
+                className="w-full py-3 bg-primary text-primary-foreground font-semibold rounded-lg hover:bg-primary/90 transition-all active:scale-[0.98] disabled:opacity-50 flex items-center justify-center gap-2"
+              >
                 {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <ShieldCheck className="w-5 h-5" />}
                 {loading ? "Resetting PIN..." : "Reset PIN"}
               </button>
