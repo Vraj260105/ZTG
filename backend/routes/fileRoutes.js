@@ -33,17 +33,19 @@ router.get(
   fileController.getMyFiles
 );
 
-// Download file
+// Download file — requires PIN
 router.get(
   "/download/:id",
   authMiddleware,
+  verifyPinHeader,
   fileController.downloadFile
 );
 
-// View file
+// View file — requires PIN
 router.get(
   "/view/:id",
   authMiddleware,
+  verifyPinHeader,
   fileController.viewFile
 );
 

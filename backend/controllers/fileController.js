@@ -6,7 +6,6 @@ const AccessRequest = require("../models/AccessRequest");
 const { Op }       = require("sequelize");
 const path         = require("path");
 const fs           = require("fs");
-const speakeasy    = require("speakeasy");   // [H1] TOTP verification
 const { computeRisk } = require("../services/riskEngine");
 
 // Upload File
@@ -321,23 +320,6 @@ exports.downloadFile = async (req, res) => {
       return res.status(404).json({ message: "Not found" });
     }
 
-    if (user.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"]; // header name kept for frontend compat; value is now a 6-digit TOTP token
-      if (!mfaToken) {
-        return res.status(403).json({ mfaRequired: true, message: "Authenticator code required for download." });
-      }
-      // [H1] Verify against TOTP secret (replaces bcrypt PIN check)
-      const isValid = user.mfaSecret && speakeasy.totp.verify({
-        secret:   user.mfaSecret,
-        encoding: "base32",
-        token:    mfaToken,
-        window:   1
-      });
-      if (!isValid) {
-        return res.status(403).json({ mfaRequired: true, message: "Invalid or expired authenticator code." });
-      }
-    }
-
     let canDownload = false;
     const userRole = user.role;
 
@@ -469,20 +451,6 @@ exports.viewFile = async (req, res) => {
     const file = await File.findByPk(fileId);
 
     if (!file || !user) return res.status(404).json({ message: "Not found" });
-
-    // MFA Check
-    if (user.mfaEnabled) {
-      const mfaToken = req.headers["x-mfa-pin"]; // header name kept for frontend compat; value is now 6-digit TOTP
-      if (!mfaToken) return res.status(403).json({ mfaRequired: true, message: "Authenticator code required." });
-      // [H1] Verify TOTP
-      const isValid = user.mfaSecret && speakeasy.totp.verify({
-        secret:   user.mfaSecret,
-        encoding: "base32",
-        token:    mfaToken,
-        window:   1
-      });
-      if (!isValid) return res.status(403).json({ mfaRequired: true, message: "Invalid or expired authenticator code." });
-    }
 
     // Access Control Logic
     let canView = (user.role === "admin" || user.role === "super_admin" || (file.allowedRoles && file.allowedRoles.includes(user.role)));
