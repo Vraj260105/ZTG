@@ -111,6 +111,14 @@ const App = () => (
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/file-management"
+            element={
+              <ProtectedRoute allowedRoles={["admin", "super_admin"]}>
+                <FileManagement />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Employee Upload */}
           <Route
